@@ -1,0 +1,6 @@
+{
+  "name": "Trikal Darshan Samachar",
+  "description": "Indian Digital Local News Platform - सत्य की त्रिकाल दृष्टि",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

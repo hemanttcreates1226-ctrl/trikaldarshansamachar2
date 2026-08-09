@@ -1,0 +1,111 @@
+@import url('https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: 'Noto Sans Devanagari', 'Mukta', 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #111111;
+    background-color: #FFFFFF;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-serif-devanagari {
+    font-family: 'Noto Sans Devanagari', 'Mukta', sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+}
+
+@keyframes shine {
+  100% {
+    left: 125%;
+  }
+}
+
+.animate-shine {
+  animation: shine 1.2s ease-in-out infinite;
+}
+
+/* Print specific styles for Press ID Card and Appointment Letters */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-area, .printable-area * {
+    visibility: visible;
+  }
+  .printable-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Custom Scrollbar for News Navigation */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Red Editorial Color Utilities */
+.bg-news-red {
+  background-color: #D71920;
+}
+.bg-news-darkred {
+  background-color: #A80F16;
+}
+.text-news-red {
+  color: #D71920;
+}
+.border-news-red {
+  border-color: #D71920;
+}
+
+.bg-gradient-brand {
+  background: linear-gradient(135deg, #B8141B 0%, #D71920 50%, #7A0A0E 100%);
+}
+
+.bg-gradient-red {
+  background: linear-gradient(135deg, #D71920 0%, #A80F16 100%);
+}
+
+.text-gold-gradient {
+  color: #FFD700;
+}
+
+.border-copper-accent {
+  border-color: #D71920;
+}
+
+/* Continuous Running Marquee Ticker */
+@keyframes marquee-scroll {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee-slow {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee-scroll 40s linear infinite;
+}
+
+
