@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import defaultLogoImg from '../../assets/images/trikal_logo_1786174990905.jpg';
+import defaultLogoImg from '../../assets/images/trikal_dark_logo_1786275035598.jpg';
 import { NewsService } from '../../services/newsService';
 
 interface LogoProps {
@@ -25,7 +25,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
   const loadBrandSettings = () => {
     try {
       const s = NewsService.getSettings();
-      const validLogo = s.logoImageUrl && s.logoImageUrl.trim() !== '' && !s.logoImageUrl.includes('unsplash.com')
+      const validLogo = s.logoImageUrl && s.logoImageUrl.trim() !== '' && !s.logoImageUrl.includes('unsplash.com') && !s.logoImageUrl.includes('1786174990905')
         ? s.logoImageUrl
         : defaultLogoImg;
 

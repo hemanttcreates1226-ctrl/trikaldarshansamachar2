@@ -12,7 +12,7 @@ import {
   WebsiteSettings,
   PanchangInfo
 } from '../types/news';
-import defaultLogoImg from '../assets/images/trikal_logo_1786174990905.jpg';
+import defaultLogoImg from '../assets/images/trikal_dark_logo_1786275035598.jpg';
 
 export const INITIAL_SETTINGS: WebsiteSettings = {
   logoImageUrl: defaultLogoImg,
