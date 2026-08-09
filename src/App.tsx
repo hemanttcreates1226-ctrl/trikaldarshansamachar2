@@ -29,10 +29,10 @@ import { NewsService } from './services/newsService';
 
 export function App() {
   const getPathFromUrl = () => {
-    const path = window.location.pathname;
-    const hash = window.location.hash.replace('#', '');
-    if (path === '/admin' || hash === '/admin' || hash === 'admin') return '/admin';
-    if (path.length > 1) return path;
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.replace('#', '').toLowerCase();
+    if (path === '/admin' || path === '/admin/' || hash === '/admin' || hash === 'admin' || hash === '/admin/') return '/admin';
+    if (path.length > 1) return window.location.pathname;
     if (hash.length > 0) return hash.startsWith('/') ? hash : `/${hash}`;
     return '/';
   };

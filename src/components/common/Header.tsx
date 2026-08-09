@@ -116,8 +116,16 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Location Selector */}
+          {/* Admin Login Button in Top Utility Bar */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigate('/admin')}
+              className="flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 bg-gray-900 hover:bg-black text-amber-300 rounded-md font-bold text-[10px] sm:text-xs transition cursor-pointer shadow-2xs border border-amber-500/30"
+              title="एडमिन पैनल खोलें"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+              <span>एडमिन पैनल</span>
+            </button>
           </div>
         </div>
       </div>

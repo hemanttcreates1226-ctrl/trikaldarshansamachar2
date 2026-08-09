@@ -180,10 +180,15 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
       <div className="bg-red-50/60 border-t border-red-100 py-4 px-4 text-xs text-gray-600 font-medium">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
           <p>© 2026 त्रिकाल दर्शन समाचार (Trikal Darshan Samachar news). सर्वाधिकार सुरक्षित।</p>
-          <div className="flex items-center gap-4 text-gray-700 font-semibold">
+          <div className="flex items-center gap-4 text-gray-700 font-semibold flex-wrap justify-center">
             <button onClick={() => onNavigate('/about')} className="hover:text-[#D71920] cursor-pointer">गोपनीयता नीति</button>
             <span>•</span>
             <button onClick={() => onNavigate('/contact')} className="hover:text-[#D71920] cursor-pointer">संपर्क करें</button>
+            <span>•</span>
+            <button onClick={() => onNavigate('/admin')} className="text-gray-900 font-bold hover:text-[#D71920] cursor-pointer flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#D71920]" />
+              <span>एडमिन पैनल (Admin)</span>
+            </button>
           </div>
         </div>
       </div>

@@ -25,8 +25,12 @@ export const TrikalLogo: React.FC<LogoProps> = ({
   const loadBrandSettings = () => {
     try {
       const s = NewsService.getSettings();
+      const validLogo = s.logoImageUrl && s.logoImageUrl.trim() !== '' && !s.logoImageUrl.includes('unsplash.com')
+        ? s.logoImageUrl
+        : defaultLogoImg;
+
       setBrandSettings({
-        logoImageUrl: s.logoImageUrl && s.logoImageUrl.trim() !== '' ? s.logoImageUrl : defaultLogoImg,
+        logoImageUrl: validLogo,
         brandTitle: s.brandTitle || s.siteName || 'त्रिकाल दर्शन',
         brandBadgeText: s.brandBadgeText || 'समाचार',
         taglineHindi: s.taglineHindi || s.tagline || 'सत्य की त्रिकाल दृष्टि'
