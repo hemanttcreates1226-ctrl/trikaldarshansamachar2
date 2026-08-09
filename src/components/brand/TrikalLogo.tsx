@@ -48,15 +48,15 @@ export const TrikalLogo: React.FC<LogoProps> = ({
   }, []);
 
   const imageSizeClasses = {
-    sm: 'h-8 w-8 sm:h-10 sm:w-10',
-    md: 'h-10 w-10 sm:h-14 sm:w-14 md:h-16 md:w-16',
-    lg: 'h-14 w-14 sm:h-20 sm:w-20 md:h-24 md:w-24',
-    xl: 'h-18 w-18 sm:h-24 sm:w-24 md:h-32 md:w-32'
+    sm: 'h-9 w-9 sm:h-10 sm:w-10',
+    md: 'h-13 w-13 sm:h-15 sm:w-15 md:h-16 md:w-16',
+    lg: 'h-16 w-16 sm:h-20 sm:w-20 md:h-24 md:w-24',
+    xl: 'h-20 w-20 sm:h-24 sm:w-24 md:h-32 md:w-32'
   }[size];
 
   const titleSizeClasses = {
     sm: 'text-base sm:text-lg',
-    md: 'text-lg sm:text-2xl md:text-3xl lg:text-3xl',
+    md: 'text-xl sm:text-2xl md:text-3xl lg:text-3xl',
     lg: 'text-2xl sm:text-3xl md:text-4xl lg:text-5xl',
     xl: 'text-3xl sm:text-4xl md:text-5xl lg:text-6xl'
   }[size];
@@ -70,7 +70,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
 
   const taglineSizeClasses = {
     sm: 'text-[10px]',
-    md: 'text-[10px] sm:text-xs md:text-sm',
+    md: 'text-[11px] sm:text-xs md:text-sm',
     lg: 'text-xs sm:text-sm md:text-base',
     xl: 'text-sm sm:text-base md:text-lg'
   }[size];

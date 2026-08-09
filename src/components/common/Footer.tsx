@@ -184,11 +184,6 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <button onClick={() => onNavigate('/about')} className="hover:text-[#D71920] cursor-pointer">गोपनीयता नीति</button>
             <span>•</span>
             <button onClick={() => onNavigate('/contact')} className="hover:text-[#D71920] cursor-pointer">संपर्क करें</button>
-            <span>•</span>
-            <button onClick={() => onNavigate('/admin')} className="text-gray-900 font-bold hover:text-[#D71920] cursor-pointer flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#D71920]" />
-              <span>एडमिन पैनल (Admin)</span>
-            </button>
           </div>
         </div>
       </div>

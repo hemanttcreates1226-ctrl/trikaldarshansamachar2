@@ -23,8 +23,9 @@ export const SettingsManagerView: React.FC = () => {
 
   useEffect(() => {
     const s = NewsService.getSettings();
+    const logoToUse = (s.logoImageUrl && s.logoImageUrl.trim() !== '' && !s.logoImageUrl.includes('unsplash.com')) ? s.logoImageUrl : defaultLogoImg;
     setForm({
-      logoImageUrl: s.logoImageUrl || defaultLogoImg,
+      logoImageUrl: logoToUse,
       brandTitle: s.brandTitle || 'त्रिकाल दर्शन',
       brandBadgeText: s.brandBadgeText || 'समाचार',
       siteName: s.siteName || 'त्रिकाल दर्शन समाचार',

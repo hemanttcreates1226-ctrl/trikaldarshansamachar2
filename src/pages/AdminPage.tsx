@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, Key, ShieldCheck, ArrowRight, Eye, EyeOff, Sparkles, CheckCircle2, Building2, User } from 'lucide-react';
+import { Lock, Key, ShieldCheck, ArrowRight, Eye, EyeOff, CheckCircle2, Building2, User } from 'lucide-react';
 import { TrikalLogo } from '../components/brand/TrikalLogo';
 import { AdminLayout } from '../components/admin/AdminLayout';
 
@@ -106,17 +106,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigateHome }) => {
             </p>
           </div>
 
-          {/* Required Credentials Quick Info Badge */}
-          <div className="bg-gradient-to-r from-amber-50 via-red-50 to-amber-50 border border-amber-200/80 rounded-2xl p-3 text-xs text-amber-900 font-medium space-y-1 text-left shadow-2xs">
-            <div className="flex items-center gap-1.5 font-black text-[#D71920] text-[11px] uppercase tracking-wider">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>प्रवेश हेतु आवश्यक क्रेडेंशियल (Login Credentials):</span>
-            </div>
-            <div className="font-mono text-[11px] bg-white/80 p-2 rounded-xl border border-amber-200/60 text-gray-800 space-y-0.5">
-              <p><strong className="text-[#D71920]">Username:</strong> trikaldarshansamachar</p>
-              <p><strong className="text-[#D71920]">Password:</strong> trikal@123</p>
-            </div>
-          </div>
 
           {/* Login Error Notification */}
           <AnimatePresence>
