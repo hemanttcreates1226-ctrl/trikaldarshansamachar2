@@ -25,7 +25,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
   const loadBrandSettings = () => {
     try {
       const s = NewsService.getSettings();
-      const validLogo = s.logoImageUrl && s.logoImageUrl.trim() !== '' && !s.logoImageUrl.includes('unsplash.com') && !s.logoImageUrl.includes('1786174990905')
+      const validLogo = (s.logoImageUrl && s.logoImageUrl.startsWith('data:image'))
         ? s.logoImageUrl
         : defaultLogoImg;
 

@@ -525,7 +525,7 @@ export class NewsService {
   static getSettings(): WebsiteSettings {
     const saved = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
     const merged = { ...INITIAL_SETTINGS, ...saved };
-    if (!merged.logoImageUrl || merged.logoImageUrl.trim() === '' || merged.logoImageUrl.includes('unsplash.com') || merged.logoImageUrl.includes('1786174990905')) {
+    if (!merged.logoImageUrl || !merged.logoImageUrl.startsWith('data:image')) {
       merged.logoImageUrl = INITIAL_SETTINGS.logoImageUrl;
     }
     return merged;
