@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import defaultLogoImg from '../../assets/images/trikal_dark_logo_1786275035598.jpg';
+import defaultLogoImg from '../../assets/9.png';
 import { NewsService } from '../../services/newsService';
 
 interface LogoProps {
@@ -79,7 +79,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
           src={defaultLogoImg}
           alt={brandSettings.brandTitle}
           referrerPolicy="no-referrer"
-          className={`${imageSizeClasses} object-contain rounded-full shadow-md border-2 border-amber-500/50 hover:scale-105 transition-transform duration-300`}
+          className={`${imageSizeClasses} object-contain rounded-full`}
         />
       </div>
 

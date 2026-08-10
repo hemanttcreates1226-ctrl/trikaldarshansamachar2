@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Save, Check, Upload, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { NewsService } from '../../../services/newsService';
 import { TrikalLogo } from '../../brand/TrikalLogo';
-import defaultLogoImg from '../../../assets/images/trikal_dark_logo_1786275035598.jpg';
+import defaultLogoImg from '../../../assets/9.png';
 
 export const SettingsManagerView: React.FC = () => {
   const [form, setForm] = useState({

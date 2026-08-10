@@ -8,7 +8,7 @@ import {
   ShieldCheck, Sparkles, Image as ImageIcon, CreditCard, Copy, Check,
   Loader2
 } from 'lucide-react';
-import defaultLogoImg from '../../assets/images/trikal_dark_logo_1786275035598.jpg';
+import defaultLogoImg from '../../assets/9.png';
 import rajkamalSignatureSvg from '../../assets/images/rajkamal_signature.svg';
 import { NewsService } from '../../services/newsService';
 
