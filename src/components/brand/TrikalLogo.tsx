@@ -25,12 +25,8 @@ export const TrikalLogo: React.FC<LogoProps> = ({
   const loadBrandSettings = () => {
     try {
       const s = NewsService.getSettings();
-      const validLogo = (s.logoImageUrl && s.logoImageUrl.startsWith('data:image'))
-        ? s.logoImageUrl
-        : defaultLogoImg;
-
       setBrandSettings({
-        logoImageUrl: validLogo,
+        logoImageUrl: defaultLogoImg,
         brandTitle: s.brandTitle || s.siteName || 'त्रिकाल दर्शन',
         brandBadgeText: s.brandBadgeText || 'समाचार',
         taglineHindi: s.taglineHindi || s.tagline || 'सत्य की त्रिकाल दृष्टि'
@@ -77,16 +73,12 @@ export const TrikalLogo: React.FC<LogoProps> = ({
 
   return (
     <div className={`inline-flex items-center gap-2 sm:gap-3 select-none max-w-full ${className}`}>
-      {/* Visual Logo Emblem: Admin Controlled high resolution logo image */}
+      {/* Visual Logo Emblem: Locked official high resolution logo image */}
       <div className="relative flex-shrink-0 flex items-center justify-center">
         <img
-          src={brandSettings.logoImageUrl}
+          src={defaultLogoImg}
           alt={brandSettings.brandTitle}
           referrerPolicy="no-referrer"
-          onError={(e) => {
-            // fallback if custom URL fails to load
-            (e.target as HTMLImageElement).src = defaultLogoImg;
-          }}
           className={`${imageSizeClasses} object-contain rounded-full shadow-md border-2 border-amber-500/50 hover:scale-105 transition-transform duration-300`}
         />
       </div>
