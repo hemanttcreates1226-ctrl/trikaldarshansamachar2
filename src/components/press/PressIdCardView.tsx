@@ -66,7 +66,7 @@ export const PressIdCardView: React.FC<PressIdCardViewProps> = ({ idCard }) => {
 
             <div className="w-full bg-[#151515] border border-[#333] rounded-lg p-2.5 text-[11px] space-y-1 text-left font-mono">
               <div className="flex justify-between border-b border-[#252525] pb-1">
-                <span className="text-gray-400">प्रेस ID (Press ID):</span>
+                <span className="text-gray-400">डिजिटल मीडिया ID (Digital Media ID):</span>
                 <span className="font-bold text-[#FFB347]">{idCard.pressId}</span>
               </div>
               <div className="flex justify-between border-b border-[#252525] pb-1">
@@ -117,7 +117,7 @@ export const PressIdCardView: React.FC<PressIdCardViewProps> = ({ idCard }) => {
             <div className="bg-[#151515] p-2.5 rounded-lg border border-[#333] space-y-1 text-[10px]">
               <p className="font-bold text-[#FFB347]">आपातकालीन संपर्क (Headquarters):</p>
               <p className="text-gray-300">कोठी रोड, उज्जैन (म.प्र.) 456010</p>
-              <p className="text-gray-300">हेल्पलाइन: +91 98260 12345 / 94250 99999</p>
+              <p className="text-gray-300">हेल्पलाइन: +91 6232876013</p>
               <p className="text-amber-200">वेबसाइट: www.trikaldarshan.com</p>
             </div>
           </div>
@@ -126,7 +126,7 @@ export const PressIdCardView: React.FC<PressIdCardViewProps> = ({ idCard }) => {
           <div className="pt-2 border-t border-[#222] flex items-center justify-between text-[10px]">
             {/* Official Seal */}
             <div className="w-14 h-14 rounded-full border-2 border-dashed border-[#F28C28] flex items-center justify-center text-[8px] font-bold text-[#FFB347] text-center p-1 leading-tight rotate-12">
-              अधिकृत मुहर <br />TRIKAL PRESS
+              अधिकृत मुहर <br />TRIKAL DIGITAL MEDIA
             </div>
 
             {/* Signature */}
@@ -134,7 +134,7 @@ export const PressIdCardView: React.FC<PressIdCardViewProps> = ({ idCard }) => {
               <div className="h-7 w-24 flex items-center justify-center border-b border-gray-600 pb-0.5">
                 <img src={rajkamalSignatureSvg} alt="Rajkamal Signature" className="max-h-full max-w-full object-contain filter invert opacity-95" />
               </div>
-              <p className="text-[9px] text-gray-400 font-serif-devanagari">राजकमल (प्रधान सम्पादक)</p>
+              <p className="text-[9px] text-gray-400 font-serif-devanagari">राजकमल पांडेय (प्रधान सम्पादक)</p>
             </div>
           </div>
         </div>

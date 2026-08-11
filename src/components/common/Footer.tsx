@@ -57,7 +57,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               className="px-5 py-2.5 rounded bg-white border-2 border-red-200 text-[#D71920] font-bold text-xs hover:bg-red-50 hover:border-red-400 shadow-sm transition flex items-center gap-2 cursor-pointer"
             >
               <Award className="w-4 h-4 text-[#D71920]" />
-              <span>प्रेस ID कार्ड सत्यापन</span>
+              <span>डिजिटल मीडिया ID कार्ड सत्यापन</span>
             </button>
           </div>
         </div>
@@ -126,7 +126,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         <div className="space-y-4">
           <h4 className="text-sm font-black text-gray-900 uppercase tracking-wider border-b-2 border-red-100 pb-2 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#D71920]"></span>
-            प्रेस सेवाएं एवं सोशल मीडिया
+            डिजिटल मीडिया सेवाएं एवं सोशल मीडिया
           </h4>
 
           <div className="space-y-2 text-xs font-bold">
@@ -134,7 +134,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               onClick={() => onNavigate('/request-id-card')}
               className="w-full text-left p-2.5 rounded bg-white hover:bg-red-50/80 border border-red-200/80 hover:border-[#D71920] transition flex items-center justify-between group shadow-sm cursor-pointer"
             >
-              <span className="text-gray-800 group-hover:text-[#D71920]">प्रेस ID कार्ड आवेदन / स्थिति</span>
+              <span className="text-gray-800 group-hover:text-[#D71920]">डिजिटल मीडिया ID कार्ड आवेदन / स्थिति</span>
               <Award className="w-4 h-4 text-[#D71920]" />
             </button>
 
@@ -181,7 +181,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
           <p>© 2026 त्रिकाल दर्शन समाचार (Trikal Darshan Samachar news). सर्वाधिकार सुरक्षित।</p>
           <div className="flex items-center gap-4 text-gray-700 font-semibold flex-wrap justify-center">
-            <button onClick={() => onNavigate('/about')} className="hover:text-[#D71920] cursor-pointer">गोपनीयता नीति</button>
+            <button onClick={() => onNavigate('/about')} className="hover:text-[#D71920] cursor-pointer">गोपनीय नीति</button>
             <span>•</span>
             <button onClick={() => onNavigate('/contact')} className="hover:text-[#D71920] cursor-pointer">संपर्क करें</button>
           </div>

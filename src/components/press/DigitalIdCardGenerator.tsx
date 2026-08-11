@@ -55,7 +55,7 @@ const DEFAULT_FORM_DATA: IDCardFormData = {
   designationHindi: 'वरिष्ठ संवाददाता',
   designationEnglish: 'SENIOR CORRESPONDENT',
   website: 'www.trikaldarshansamachar.com',
-  email: 'info@trikaldarshansamachar.com',
+  email: 'trikaldarshannews72@gmail.com',
   address: 'B-12, प्रथम तल, पत्रकार पुरम, नई दिल्ली - 110002',
   signature: DEFAULT_SIGNATURE_SVG,
   orgTitle: 'त्रिकाल दर्शन',

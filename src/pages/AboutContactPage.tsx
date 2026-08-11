@@ -55,8 +55,8 @@ export const AboutContactPage: React.FC = () => {
             </ul>
 
             <div className="pt-2 border-t border-gray-100 font-bold text-gray-900">
-              <p>प्रधान सम्पादक: राकेश शर्मा</p>
-              <p className="text-gray-500 font-normal">रजिस्ट्रेशन संख्या: MP/NEWS/2026/TD</p>
+              <p>प्रधान सम्पादक: राजकमल पांडेय</p>
+              <p className="text-gray-500 font-normal">रजिस्ट्रेशन संख्या: UDYAM-MP-34-0003439</p>
             </div>
           </div>
 
@@ -80,7 +80,7 @@ export const AboutContactPage: React.FC = () => {
                 <Phone className="w-5 h-5 text-[#F28C28] shrink-0" />
                 <div>
                   <p className="font-bold text-gray-900">हेल्पलाइन एवं विज्ञापन बुकिंग:</p>
-                  <p className="font-mono text-gray-800">+91 98260 12345 / 94250 99999</p>
+                  <p className="font-mono text-gray-800">+91 6232876013</p>
                 </div>
               </div>
 
@@ -88,7 +88,7 @@ export const AboutContactPage: React.FC = () => {
                 <Mail className="w-5 h-5 text-[#F28C28] shrink-0" />
                 <div>
                   <p className="font-bold text-gray-900">संपादकीय ईमेल:</p>
-                  <p className="font-mono text-gray-800">editor@trikaldarshan.com</p>
+                  <p className="font-mono text-gray-800">trikaldarshannews72@gmail.com</p>
                 </div>
               </div>
             </div>

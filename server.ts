@@ -23,7 +23,7 @@ async function startServer() {
     // Default admin credentials check
     if (
       (username === "admin" && password === "trikal123") ||
-      (username === "editor@trikaldarshan.com" && password === "admin123")
+      (username === "trikaldarshannews72@gmail.com" && password === "admin123")
     ) {
       return res.json({
         success: true,
@@ -31,7 +31,7 @@ async function startServer() {
         user: {
           id: "admin-1",
           name: "प्रधान सम्पादक (Admin)",
-          email: "editor@trikaldarshan.com",
+          email: "trikaldarshannews72@gmail.com",
           role: "super_admin"
         }
       });

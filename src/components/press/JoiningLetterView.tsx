@@ -78,7 +78,7 @@ export const JoiningLetterView: React.FC<JoiningLetterViewProps> = ({ letter }) 
           <div className="h-10 w-32 flex items-center justify-center border-b border-gray-400 pb-1">
             <img src={rajkamalSignatureSvg} alt="Rajkamal Signature" className="max-h-full max-w-full object-contain" />
           </div>
-          <p className="font-bold text-gray-900 text-xs">राजकमल - प्रधान सम्पादक (Editor-in-Chief)</p>
+          <p className="font-bold text-gray-900 text-xs">राजकमल पांडेय - प्रधान सम्पादक (Editor-in-Chief)</p>
           <p className="text-[10px] text-gray-500">त्रिकाल दर्शन समाचार मीडिया हाऊस</p>
         </div>
       </div>

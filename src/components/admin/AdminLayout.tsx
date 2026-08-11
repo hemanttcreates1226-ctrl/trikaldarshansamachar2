@@ -134,7 +134,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
           <div className="p-4 border-t border-red-100 bg-red-50/50 text-xs text-gray-700 space-y-1">
             <p className="font-black text-[#D71920]">प्रधान सम्पादक</p>
-            <p className="text-[10px] font-mono text-gray-600">editor@trikaldarshan.com</p>
+            <p className="text-[10px] font-mono text-gray-600">trikaldarshannews72@gmail.com</p>
           </div>
         </aside>
 

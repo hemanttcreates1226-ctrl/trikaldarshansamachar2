@@ -23,14 +23,14 @@ export const INITIAL_SETTINGS: WebsiteSettings = {
   brandNameHindi: "त्रिकाल दर्शन समाचार",
   taglineHindi: "सत्य की त्रिकाल दृष्टि",
   tagline: "सत्य की त्रिकाल दृष्टि",
-  contactNumber: "+91 98260 12345",
-  contactEmail: "editor@trikaldarshan.com",
+  contactNumber: "+91 6232876013",
+  contactEmail: "trikaldarshannews72@gmail.com",
   addressHindi: "त्रिकाल दर्शन समाचार मीडिया हाऊस, कोठी रोड, उज्जैन (म.प्र.) 456010",
   address: "कोठी रोड, जिला उज्जैन (म.प्र.) 456010",
-  editorName: "राकेश शर्मा (प्रधान सम्पादक)",
+  editorName: "राजकमल पांडेय (प्रधान सम्पादक)",
   breakingTickerSpeed: 10,
   footerAboutHindi: "त्रिकाल दर्शन समाचार भारत का अग्रणी और निष्पक्ष डिजिटल समाचार मंच है। हम स्थानीय समस्याओं, ग्राउंड रिपोर्टिंग और सत्य की खोज को सर्वोपरि मानते हैं।",
-  emergencyContact: "+91 94250 99999"
+  emergencyContact: "+91 6232876013"
 };
 
 export const INITIAL_CATEGORIES: Category[] = [
@@ -75,17 +75,17 @@ export const INITIAL_DISTRICTS: District[] = [
 export const INITIAL_REPORTERS: Reporter[] = [
   {
     id: 'rep-1',
-    name: 'राकेश शर्मा',
+    name: 'राजकमल पांडेय ',
     photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80',
-    mobile: '9826198261',
-    email: 'rakesh.sharma@trikaldarshan.com',
+    mobile: '+91 6232876013',
+    email: 'trikaldarshannews72@gmail.com',
     designation: 'ब्यूरो चीफ (उज्जैन संभाग)',
     role: 'bureau_chief',
     stateId: 'st-mp',
     stateName: 'मध्य प्रदेश',
     districtId: 'dt-ujn',
     districtName: 'उज्जैन',
-    bio: '12 वर्षों का पत्रकारिता अनुभव। महाकाल कॉरिडोर, धार्मिक मामलों एवं स्थानीय प्रशासन पर विश्लेषणात्मक रिपोर्टिंग।',
+    bio: '4 वर्षों का पत्रकारिता अनुभव। महाकाल कॉरिडोर, धार्मिक मामलों एवं स्थानीय प्रशासन पर विश्लेषणात्मक रिपोर्टिंग।',
     articlesCount: 142,
     status: 'active'
   },
@@ -149,8 +149,8 @@ export const INITIAL_NEWS: NewsArticle[] = [
     districtName: 'उज्जैन',
     cityName: 'उज्जैन शहर',
     reporterId: 'rep-1',
-    reporterName: 'राकेश शर्मा',
-    authorName: 'राकेश शर्मा (ब्यूरो चीफ)',
+    reporterName: 'राजकमल पांडेय',
+    authorName: 'राजकमल पांडेय (ब्यूरो चीफ)',
     tags: ['उज्जैन', 'महाकाल', 'सिंहस्थ 2028', 'स्मार्ट सिटी'],
     views: 8520,
     isBreaking: true,

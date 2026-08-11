@@ -52,7 +52,7 @@ export const VerifyMemberPage: React.FC<VerifyMemberPageProps> = ({ pressId, onN
             {/* Credentials Table */}
             <div className="bg-[#0A0A0A] border border-[#333] rounded-xl p-4 text-xs font-mono space-y-2 text-left">
               <div className="flex justify-between border-b border-[#222] pb-1.5">
-                <span className="text-gray-400">प्रेस ID (Press ID):</span>
+                <span className="text-gray-400">डिजिटल मीडिया कार्ड ID (Digital Media Card ID):</span>
                 <span className="font-bold text-[#FFB347]">{idCard.pressId}</span>
               </div>
               <div className="flex justify-between border-b border-[#222] pb-1.5">

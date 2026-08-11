@@ -73,7 +73,7 @@ export const AdvertisementContainer: React.FC<AdvertisementContainerProps> = ({
               </p>
             </div>
             <a
-              href="mailto:ads@trikaldarshan.com"
+              href="mailto:trikaldarshannews72@gmail.com"
               className="shrink-0 px-4 py-2 bg-[#D71920] hover:bg-[#A80F16] text-white rounded font-bold text-xs shadow transition flex items-center gap-1.5"
             >
               <Megaphone className="w-3.5 h-3.5" />

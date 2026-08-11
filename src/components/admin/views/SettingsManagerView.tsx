@@ -13,7 +13,7 @@ export const SettingsManagerView: React.FC = () => {
     tagline: 'सत्य की त्रिकाल दृष्टि',
     contactNumber: '+91 98260 12345',
     emergencyContact: '+91 94250 99999',
-    contactEmail: 'editor@trikaldarshan.com',
+    contactEmail: 'trikaldarshannews72@gmail.com',
     address: 'कोठी रोड, जिला उज्जैन (म.प्र.) 456010',
     editorName: 'राकेश शर्मा (प्रधान सम्पादक)',
     breakingTickerSpeed: 10
@@ -32,7 +32,7 @@ export const SettingsManagerView: React.FC = () => {
       tagline: s.taglineHindi || s.tagline || 'सत्य की त्रिकाल दृष्टि',
       contactNumber: s.contactNumber || '+91 98260 12345',
       emergencyContact: s.emergencyContact || '+91 94250 99999',
-      contactEmail: s.contactEmail || 'editor@trikaldarshan.com',
+      contactEmail: s.contactEmail || 'trikaldarshannews72@gmail.com',
       address: s.address || 'कोठी रोड, उज्जैन',
       editorName: s.editorName || 'राकेश शर्मा',
       breakingTickerSpeed: s.breakingTickerSpeed || 10

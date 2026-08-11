@@ -525,8 +525,9 @@ export class NewsService {
   static getSettings(): WebsiteSettings {
     const saved = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
     const merged = { ...INITIAL_SETTINGS, ...saved };
-    // Always enforce default website logo to prevent stale local storage base64 data from overriding the official logo
+    // Always enforce default website logo and official contact email to prevent stale local storage overrides
     merged.logoImageUrl = INITIAL_SETTINGS.logoImageUrl;
+    merged.contactEmail = INITIAL_SETTINGS.contactEmail;
     return merged;
   }
 
