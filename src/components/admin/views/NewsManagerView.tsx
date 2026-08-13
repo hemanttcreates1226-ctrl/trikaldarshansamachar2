@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Newspaper, Plus, Search, Edit3, Trash2, Eye, Flame, Sparkles, Check, X, MapPin, Upload, Video, Image as ImageIcon } from 'lucide-react';
+import { Newspaper, Plus, Search, Edit3, Trash2, Eye, Flame, Sparkles, Check, X, MapPin, Upload, Video, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import { NewsArticle, Category, State, District, Reporter } from '../../../types/news';
 import { NewsService } from '../../../services/newsService';
 
@@ -18,6 +18,8 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(initialOpenModal);
   const [editingArticle, setEditingArticle] = useState<NewsArticle | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<NewsArticle | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
   // Form State
   const [form, setForm] = useState({
@@ -108,6 +110,8 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
 
   const handleOpenEditModal = (article: NewsArticle) => {
     setEditingArticle(article);
+    const stateId = article.stateId || 'st-mp';
+    setDistricts(NewsService.getDistricts(stateId));
     setForm({
       title: article.title,
       subtitle: article.subtitle || '',
@@ -116,7 +120,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
       featuredImage: article.featuredImage,
       videoUrl: article.videoUrl || '',
       categorySlug: article.categorySlug,
-      stateId: article.stateId || 'st-mp',
+      stateId: stateId,
       districtId: article.districtId || 'dt-ujn',
       cityName: article.cityName || '',
       reporterId: article.reporterId || '',
@@ -127,6 +131,22 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
       tagsStr: article.tags?.join(', ') || ''
     });
     setModalOpen(true);
+  };
+
+  const handleToggleBreaking = (article: NewsArticle) => {
+    NewsService.saveArticle({
+      id: article.id,
+      isBreaking: !article.isBreaking
+    });
+    loadAll();
+  };
+
+  const handleToggleFeatured = (article: NewsArticle) => {
+    NewsService.saveArticle({
+      id: article.id,
+      isFeatured: !article.isFeatured
+    });
+    loadAll();
   };
 
   const handleSaveArticle = (e: React.FormEvent) => {
@@ -169,18 +189,28 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
     });
 
     setModalOpen(false);
+    showToast(`✅ '${form.title}' समाचार सफलतापूर्वक प्रकाशित/अद्यतित किया गया!`);
     loadAll();
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('क्या आप निश्चित रूप से इस समाचार को हटाना चाहते हैं?')) {
-      NewsService.deleteArticle(id);
+  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const confirmDeleteArticle = () => {
+    if (deleteTarget) {
+      NewsService.deleteArticle(deleteTarget.id);
+      showToast(`🗑️ '${deleteTarget.title}' समाचार सफलतापूर्वक हटाया गया।`, 'info');
+      setDeleteTarget(null);
       loadAll();
     }
   };
 
   const filteredArticles = articles.filter(a => {
-    const matchesSearch = a.title.toLowerCase().includes(searchQuery.toLowerCase()) || a.summary.toLowerCase().includes(searchQuery.toLowerCase());
+    const title = a.title || '';
+    const summary = a.summary || '';
+    const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase()) || summary.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCat = selectedCategoryFilter === 'all' || a.categorySlug === selectedCategoryFilter;
     return matchesSearch && matchesCat;
   });
@@ -272,17 +302,33 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
                     {art.reporterName || art.authorName}
                   </td>
                   <td className="p-3 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      {art.isBreaking && (
-                        <span className="p-1 bg-red-100 text-red-700 border border-red-200 rounded" title="बड़ी खबर">
-                          <Flame className="w-3.5 h-3.5 fill-red-600" />
-                        </span>
-                      )}
-                      {art.isFeatured && (
-                        <span className="p-1 bg-amber-100 text-amber-800 border border-amber-300 rounded" title="मुख्य समाचार">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                        </span>
-                      )}
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleBreaking(art)}
+                        className={`p-1 rounded border transition cursor-pointer ${
+                          art.isBreaking
+                            ? 'bg-red-100 text-red-700 border-red-300 font-bold shadow-xs'
+                            : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-red-50 hover:text-red-600'
+                        }`}
+                        title={art.isBreaking ? 'बड़ी खबर (सक्रिय - बंद करने के लिए क्लिक करें)' : 'बड़ी खबर (Breaking) बनाएं'}
+                      >
+                        <Flame className={`w-3.5 h-3.5 ${art.isBreaking ? 'fill-red-600 text-red-600' : ''}`} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFeatured(art)}
+                        className={`p-1 rounded border transition cursor-pointer ${
+                          art.isFeatured
+                            ? 'bg-amber-100 text-amber-800 border-amber-300 font-bold shadow-xs'
+                            : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-amber-50 hover:text-amber-700'
+                        }`}
+                        title={art.isFeatured ? 'मुख्य समाचार (सक्रिय - बंद करने के लिए क्लिक करें)' : 'मुख्य समाचार (Featured) बनाएं'}
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 ${art.isFeatured ? 'text-amber-700' : ''}`} />
+                      </button>
+
                       {art.videoUrl && (
                         <span className="p-1 bg-blue-100 text-blue-800 border border-blue-200 rounded" title="वीडियो समाचार">
                           <Video className="w-3.5 h-3.5 text-blue-700" />
@@ -303,7 +349,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
                         <Edit3 className="w-4 h-4 text-gray-800" />
                       </button>
                       <button
-                        onClick={() => handleDelete(art.id)}
+                        onClick={() => setDeleteTarget(art)}
                         className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded border border-red-200 transition cursor-pointer"
                         title="हटाएं"
                       >
@@ -534,6 +580,52 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <div className="bg-white border-2 border-red-300 rounded-2xl max-w-md w-full p-6 text-gray-900 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-3 bg-red-100 rounded-full">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-black text-base text-gray-900 font-serif-devanagari">समाचार हटाने की पुष्टि करें</h3>
+                <p className="text-xs text-gray-500 font-medium">यह समाचार स्थायी रूप से हट जाएगा।</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 border border-gray-200 p-3 rounded-xl text-xs font-bold text-gray-800 line-clamp-2">
+              "{deleteTarget.title}"
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-600 hover:text-gray-900 cursor-pointer"
+              >
+                रद्द करें
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteArticle}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer"
+              >
+                हाँ, समाचार हटाएं (Delete)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-[100] px-4 py-3 bg-gray-900 text-white border border-gray-700 rounded-xl shadow-2xl text-xs font-bold flex items-center gap-3 animate-bounce">
+          <span>{toast.message}</span>
+          <button onClick={() => setToast(null)} className="text-gray-400 hover:text-white font-bold">✕</button>
         </div>
       )}
     </div>

@@ -79,9 +79,9 @@ export class NewsService {
     let articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
 
     if (filters) {
-      if (filters.status) {
+      if (filters.status && filters.status !== 'all') {
         articles = articles.filter(a => a.status === filters.status);
-      } else {
+      } else if (!filters.status) {
         articles = articles.filter(a => a.status === 'published');
       }
 
@@ -288,6 +288,11 @@ export class NewsService {
     return newDistrict;
   }
 
+  static deleteDistrict(id: string): void {
+    const districts: District[] = getItem(STORAGE_KEYS.DISTRICTS, INITIAL_DISTRICTS);
+    setItem(STORAGE_KEYS.DISTRICTS, districts.filter(d => d.id !== id));
+  }
+
   // --- REPORTERS ---
   static getReporters(): Reporter[] {
     return getItem(STORAGE_KEYS.REPORTERS, INITIAL_REPORTERS);
@@ -327,6 +332,12 @@ export class NewsService {
     reporters.push(newRep);
     setItem(STORAGE_KEYS.REPORTERS, reporters);
     return newRep;
+  }
+
+  static deleteReporter(id: string): void {
+    const reporters: Reporter[] = getItem(STORAGE_KEYS.REPORTERS, INITIAL_REPORTERS);
+    const filtered = reporters.filter(r => r.id !== id);
+    setItem(STORAGE_KEYS.REPORTERS, filtered);
   }
 
   // --- MEMBER APPLICATIONS ---
@@ -394,9 +405,19 @@ export class NewsService {
     return app;
   }
 
+  static deleteApplication(id: string): void {
+    const apps: MemberApplication[] = getItem(STORAGE_KEYS.APPLICATIONS, INITIAL_APPLICATIONS);
+    setItem(STORAGE_KEYS.APPLICATIONS, apps.filter(a => a.id !== id));
+  }
+
   // --- ID CARDS & JOINING LETTERS ---
   static getIDCards(): IDCard[] {
     return getItem(STORAGE_KEYS.ID_CARDS, INITIAL_ID_CARDS);
+  }
+
+  static deleteIDCard(id: string): void {
+    const idCards: IDCard[] = getItem(STORAGE_KEYS.ID_CARDS, INITIAL_ID_CARDS);
+    setItem(STORAGE_KEYS.ID_CARDS, idCards.filter(c => c.id !== id));
   }
 
   static generateIDCardForApp(app: MemberApplication): IDCard {
@@ -434,6 +455,53 @@ export class NewsService {
 
   static getJoiningLetters(): JoiningLetter[] {
     return getItem(STORAGE_KEYS.JOINING_LETTERS, INITIAL_JOINING_LETTERS);
+  }
+
+  static saveJoiningLetter(letterData: Partial<JoiningLetter>): JoiningLetter {
+    const letters: JoiningLetter[] = getItem(STORAGE_KEYS.JOINING_LETTERS, INITIAL_JOINING_LETTERS);
+    if (letterData.id) {
+      const idx = letters.findIndex(l => l.id === letterData.id);
+      if (idx !== -1) {
+        const updated = { ...letters[idx], ...letterData } as JoiningLetter;
+        letters[idx] = updated;
+        setItem(STORAGE_KEYS.JOINING_LETTERS, letters);
+        return updated;
+      }
+    }
+
+    const newLetter: JoiningLetter = {
+      id: `jl-${Date.now()}`,
+      letterNo: letterData.letterNo || `TDS/HR/${new Date().getFullYear()}/${Math.floor(1000 + Math.random() * 9000)}`,
+      applicationId: letterData.applicationId || '',
+      memberId: letterData.memberId || `TDS-MEM-${Math.floor(8000 + Math.random() * 1000)}`,
+      name: letterData.name || 'पत्रकार का नाम',
+      designation: letterData.designation || 'जिला संवाददाता',
+      stateName: letterData.stateName || 'मध्य प्रदेश',
+      districtName: letterData.districtName || 'उज्जैन',
+      issueDate: letterData.issueDate || new Date().toISOString().split('T')[0],
+      joiningDate: letterData.joiningDate || new Date().toISOString().split('T')[0],
+      responsibilities: letterData.responsibilities || [
+        'सत्य, पारदर्शी एवं निष्पक्ष समाचारों का संकलन।',
+        'सम्पादकीय नीतियों एवं आचार संहिता का पालन।',
+        'जनसमस्याओं और विकास कार्यों का यथार्थवादी कवरेज।'
+      ],
+      terms: letterData.terms || [
+        'यह नियुक्ति पत्र त्रिकाल दर्शन समाचार मीडिया हाऊस द्वारा जारी अधिकृत दस्तावेज है।',
+        'पत्रकारिता के नैतिक मूल्यों का उल्लंघन करने पर नियुक्ति स्वतः निरस्त मानी जाएगी।',
+        'प्रेस परिचय पत्र केवल समाचार संकलन कार्य हेतु मान्य होगा।'
+      ],
+      editorName: letterData.editorName || 'राजकमल पांडेय - प्रधान सम्पादक (Editor-in-Chief)'
+    };
+
+    letters.unshift(newLetter);
+    setItem(STORAGE_KEYS.JOINING_LETTERS, letters);
+    return newLetter;
+  }
+
+  static deleteJoiningLetter(id: string): void {
+    const letters: JoiningLetter[] = getItem(STORAGE_KEYS.JOINING_LETTERS, INITIAL_JOINING_LETTERS);
+    const filtered = letters.filter(l => l.id !== id);
+    setItem(STORAGE_KEYS.JOINING_LETTERS, filtered);
   }
 
   static generateJoiningLetterForApp(app: MemberApplication): JoiningLetter {
@@ -513,12 +581,47 @@ export class NewsService {
     setItem(STORAGE_KEYS.ADVERTISEMENTS, ads.filter(a => a.id !== id));
   }
 
+  static sanitizeUrl(url?: string): string {
+    if (!url) return '#';
+    let clean = url.trim();
+    if (!clean) return '#';
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = `https://${clean}`;
+    }
+    return clean;
+  }
+
   static getSocialLinks(): SocialLink[] {
-    return getItem(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
+    const links = getItem<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
+    const settings = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
+
+    if (settings && settings.socialLinks) {
+      return links.map(l => {
+        const plat = l.platform.toLowerCase();
+        let updatedUrl = l.url;
+        if ((plat === 'whatsapp' || plat === 'whatsappchannel') && settings.socialLinks?.whatsappChannel) {
+          updatedUrl = settings.socialLinks.whatsappChannel;
+        } else if (plat === 'youtube' && settings.socialLinks?.youtube) {
+          updatedUrl = settings.socialLinks.youtube;
+        } else if (plat === 'telegram' && settings.socialLinks?.telegram) {
+          updatedUrl = settings.socialLinks.telegram;
+        } else if (plat === 'facebook' && settings.socialLinks?.facebook) {
+          updatedUrl = settings.socialLinks.facebook;
+        } else if (plat === 'instagram' && settings.socialLinks?.instagram) {
+          updatedUrl = settings.socialLinks.instagram;
+        } else if ((plat === 'twitter' || plat === 'x') && settings.socialLinks?.twitter) {
+          updatedUrl = settings.socialLinks.twitter;
+        }
+        return { ...l, url: this.sanitizeUrl(updatedUrl) };
+      });
+    }
+
+    return links.map(l => ({ ...l, url: this.sanitizeUrl(l.url) }));
   }
 
   static saveSocialLinks(links: SocialLink[]): void {
-    setItem(STORAGE_KEYS.SOCIAL_LINKS, links);
+    const sanitized = links.map(l => ({ ...l, url: this.sanitizeUrl(l.url) }));
+    setItem(STORAGE_KEYS.SOCIAL_LINKS, sanitized);
   }
 
   // --- WEBSITE SETTINGS & PANCHANG ---
@@ -536,9 +639,35 @@ export class NewsService {
   }
 
   static saveSettings(settings: Partial<WebsiteSettings>): WebsiteSettings {
-    const current = getItem(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
+    const current = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
     const updated = { ...current, ...settings };
     setItem(STORAGE_KEYS.SETTINGS, updated);
+
+    // If socialLinks object was included, also update STORAGE_KEYS.SOCIAL_LINKS
+    if (settings.socialLinks) {
+      const socialLinksObj = settings.socialLinks;
+      const currentArray = getItem<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
+      const updatedArray = currentArray.map(item => {
+        const plat = item.platform.toLowerCase();
+        let newUrl = item.url;
+        if ((plat === 'whatsapp' || plat === 'whatsappchannel') && socialLinksObj.whatsappChannel) {
+          newUrl = socialLinksObj.whatsappChannel;
+        } else if (plat === 'youtube' && socialLinksObj.youtube) {
+          newUrl = socialLinksObj.youtube;
+        } else if (plat === 'telegram' && socialLinksObj.telegram) {
+          newUrl = socialLinksObj.telegram;
+        } else if (plat === 'facebook' && socialLinksObj.facebook) {
+          newUrl = socialLinksObj.facebook;
+        } else if (plat === 'instagram' && socialLinksObj.instagram) {
+          newUrl = socialLinksObj.instagram;
+        } else if ((plat === 'twitter' || plat === 'x') && socialLinksObj.twitter) {
+          newUrl = socialLinksObj.twitter;
+        }
+        return { ...item, url: this.sanitizeUrl(newUrl) };
+      });
+      setItem(STORAGE_KEYS.SOCIAL_LINKS, updatedArray);
+    }
+
     return updated;
   }
 

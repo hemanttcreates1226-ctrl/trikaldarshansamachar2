@@ -55,6 +55,7 @@ export const GlassySocialIcon: React.FC<GlassySocialIconProps> = ({
           icon: <Instagram className={sizeClass} />
         };
       case 'whatsapp':
+      case 'whatsappchannel':
         return {
           bg: 'bg-[#25D366] hover:bg-[#20ba5a]',
           icon: <WhatsappIcon className={sizeClass} />

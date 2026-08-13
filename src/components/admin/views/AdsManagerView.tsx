@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Megaphone, Plus } from 'lucide-react';
+import { Megaphone, Plus, Trash2, AlertCircle } from 'lucide-react';
 import { Advertisement, AdType } from '../../../types/news';
 import { NewsService } from '../../../services/newsService';
 
@@ -9,6 +9,7 @@ export const AdsManagerView: React.FC = () => {
   const [imageUrl, setImageUrl] = useState('https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&q=80');
   const [targetUrl, setTargetUrl] = useState('#');
   const [type, setType] = useState<AdType>('top_banner');
+  const [deleteTarget, setDeleteTarget] = useState<Advertisement | null>(null);
 
   useEffect(() => {
     setAds(NewsService.getAdvertisements());
@@ -21,7 +22,7 @@ export const AdsManagerView: React.FC = () => {
     NewsService.addAdvertisement({
       title,
       imageUrl,
-      targetUrl,
+      targetUrl: NewsService.sanitizeUrl(targetUrl),
       type,
       isActive: true,
       startDate: new Date().toISOString()
@@ -29,6 +30,14 @@ export const AdsManagerView: React.FC = () => {
 
     setTitle('');
     setAds(NewsService.getAdvertisements());
+  };
+
+  const confirmDeleteAd = () => {
+    if (deleteTarget) {
+      NewsService.deleteAdvertisement(deleteTarget.id);
+      setAds(NewsService.getAdvertisements());
+      setDeleteTarget(null);
+    }
   };
 
   return (
@@ -111,9 +120,18 @@ export const AdsManagerView: React.FC = () => {
               <div key={ad.id} className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs space-y-2">
                 <div className="flex items-center justify-between font-bold">
                   <span className="text-gray-900 font-serif-devanagari">{ad.title}</span>
-                  <span className="bg-red-100 text-[#D71920] px-2 py-0.5 rounded text-[10px] uppercase font-mono font-bold">
-                    {ad.type}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-red-100 text-[#D71920] px-2 py-0.5 rounded text-[10px] uppercase font-mono font-bold">
+                      {ad.type}
+                    </span>
+                    <button
+                      onClick={() => setDeleteTarget(ad)}
+                      className="text-red-600 hover:text-red-800 p-1 hover:bg-red-50 rounded transition cursor-pointer"
+                      title="हटाएं"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <img src={ad.imageUrl} alt={ad.title} className="w-full h-20 object-cover rounded-lg border border-gray-200" />
               </div>
@@ -121,6 +139,44 @@ export const AdsManagerView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <div className="bg-white border-2 border-red-300 rounded-2xl max-w-md w-full p-6 text-gray-900 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-3 bg-red-100 rounded-full">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-black text-base text-gray-900 font-serif-devanagari">विज्ञापन हटाने की पुष्टि करें</h3>
+                <p className="text-xs text-gray-500 font-medium">यह विज्ञापन स्थायी रूप से हट जाएगा।</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 border border-gray-200 p-3 rounded-xl text-xs font-bold text-gray-800">
+              "{deleteTarget.title}" ({deleteTarget.type})
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-600 hover:text-gray-900 cursor-pointer"
+              >
+                रद्द करें
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteAd}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer"
+              >
+                हाँ, विज्ञापन हटाएं (Delete)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

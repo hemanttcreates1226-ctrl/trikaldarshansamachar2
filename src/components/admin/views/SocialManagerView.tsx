@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Share2, Save, Check } from 'lucide-react';
+import { Share2, Save, Check, ExternalLink } from 'lucide-react';
 import { NewsService } from '../../../services/newsService';
+import { SocialLink } from '../../../types/news';
 
 export const SocialManagerView: React.FC = () => {
   const [links, setLinks] = useState({
@@ -15,17 +16,71 @@ export const SocialManagerView: React.FC = () => {
 
   useEffect(() => {
     const s = NewsService.getSettings();
-    if (s.socialLinks) {
-      setLinks(s.socialLinks);
-    }
+    const socialArr = NewsService.getSocialLinks();
+
+    const findUrl = (plat: string, fallback: string) => {
+      const match = socialArr.find(item => item.platform.toLowerCase() === plat.toLowerCase());
+      return match?.url || fallback;
+    };
+
+    setLinks({
+      facebook: s.socialLinks?.facebook || findUrl('facebook', 'https://facebook.com/trikaldarshan'),
+      youtube: s.socialLinks?.youtube || findUrl('youtube', 'https://youtube.com/c/trikaldarshan'),
+      whatsappChannel: s.socialLinks?.whatsappChannel || findUrl('whatsapp', 'https://whatsapp.com/channel/0029VaA123'),
+      telegram: s.socialLinks?.telegram || findUrl('telegram', 'https://t.me/trikaldarshan'),
+      instagram: s.socialLinks?.instagram || findUrl('instagram', 'https://instagram.com/trikaldarshan'),
+      twitter: s.socialLinks?.twitter || findUrl('twitter', 'https://x.com/trikaldarshan')
+    });
   }, []);
+
+  const sanitizeUrl = (url: string) => {
+    if (!url) return '';
+    let clean = url.trim();
+    if (!clean) return '';
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = `https://${clean}`;
+    }
+    return clean;
+  };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const cleaned = {
+      facebook: sanitizeUrl(links.facebook),
+      youtube: sanitizeUrl(links.youtube),
+      whatsappChannel: sanitizeUrl(links.whatsappChannel),
+      telegram: sanitizeUrl(links.telegram),
+      instagram: sanitizeUrl(links.instagram),
+      twitter: sanitizeUrl(links.twitter)
+    };
+
+    // 1. Update Website Settings
     const current = NewsService.getSettings();
-    NewsService.updateSettings({ ...current, socialLinks: links });
+    NewsService.updateSettings({ ...current, socialLinks: cleaned });
+
+    // 2. Update Social Links Array for Footer Icons
+    const socialArray: SocialLink[] = [
+      { id: 'soc-1', platform: 'youtube', label: 'YouTube Live Channel', url: cleaned.youtube, isEnabled: true },
+      { id: 'soc-2', platform: 'facebook', label: 'Facebook Official Page', url: cleaned.facebook, isEnabled: true },
+      { id: 'soc-3', platform: 'whatsapp', label: 'WhatsApp Official Channel', url: cleaned.whatsappChannel, isEnabled: true },
+      { id: 'soc-4', platform: 'telegram', label: 'Telegram News Alerts', url: cleaned.telegram, isEnabled: true },
+      { id: 'soc-5', platform: 'instagram', label: 'Instagram Stories', url: cleaned.instagram, isEnabled: true },
+      { id: 'soc-6', platform: 'twitter', label: 'X (Twitter)', url: cleaned.twitter, isEnabled: true }
+    ];
+    NewsService.saveSocialLinks(socialArray);
+
+    setLinks(cleaned);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleTestLink = (rawUrl: string) => {
+    const formatted = sanitizeUrl(rawUrl);
+    if (formatted && formatted !== '#') {
+      window.open(formatted, '_blank', 'noopener,noreferrer');
+    } else {
+      alert('कृपया वैध URL दर्ज करें!');
+    }
   };
 
   return (
@@ -42,9 +97,20 @@ export const SocialManagerView: React.FC = () => {
 
       <form onSubmit={handleSave} className="max-w-2xl bg-white border border-red-100 rounded-2xl p-6 space-y-4 text-xs shadow-xs">
         <div>
-          <label className="block text-gray-800 font-bold mb-1">WhatsApp चैनल लिंक (WhatsApp Channel)</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-gray-800 font-bold">WhatsApp चैनल लिंक (WhatsApp Channel)</label>
+            <button
+              type="button"
+              onClick={() => handleTestLink(links.whatsappChannel)}
+              className="text-[11px] text-emerald-700 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>जांचें (Test Link)</span>
+            </button>
+          </div>
           <input
-            type="url"
+            type="text"
+            placeholder="https://whatsapp.com/channel/..."
             value={links.whatsappChannel}
             onChange={(e) => setLinks({ ...links, whatsappChannel: e.target.value })}
             className="w-full bg-gray-50 border border-gray-300 text-emerald-700 font-mono font-bold rounded-lg p-2.5 outline-none focus:border-[#D71920]"
@@ -52,9 +118,20 @@ export const SocialManagerView: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-gray-800 font-bold mb-1">YouTube चैनल लिंक (Live Video News)</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-gray-800 font-bold">YouTube चैनल लिंक (Live Video News)</label>
+            <button
+              type="button"
+              onClick={() => handleTestLink(links.youtube)}
+              className="text-[11px] text-red-700 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>जांचें (Test Link)</span>
+            </button>
+          </div>
           <input
-            type="url"
+            type="text"
+            placeholder="https://youtube.com/c/..."
             value={links.youtube}
             onChange={(e) => setLinks({ ...links, youtube: e.target.value })}
             className="w-full bg-gray-50 border border-gray-300 text-red-700 font-mono font-bold rounded-lg p-2.5 outline-none focus:border-[#D71920]"
@@ -62,9 +139,20 @@ export const SocialManagerView: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-gray-800 font-bold mb-1">Telegram चैनल लिंक (Instant Updates)</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-gray-800 font-bold">Telegram चैनल लिंक (Instant Updates)</label>
+            <button
+              type="button"
+              onClick={() => handleTestLink(links.telegram)}
+              className="text-[11px] text-sky-700 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>जांचें (Test Link)</span>
+            </button>
+          </div>
           <input
-            type="url"
+            type="text"
+            placeholder="https://t.me/..."
             value={links.telegram}
             onChange={(e) => setLinks({ ...links, telegram: e.target.value })}
             className="w-full bg-gray-50 border border-gray-300 text-sky-700 font-mono font-bold rounded-lg p-2.5 outline-none focus:border-[#D71920]"
@@ -72,9 +160,20 @@ export const SocialManagerView: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-gray-800 font-bold mb-1">Facebook पेज लिंक</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-gray-800 font-bold">Facebook पेज लिंक</label>
+            <button
+              type="button"
+              onClick={() => handleTestLink(links.facebook)}
+              className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>जांचें (Test Link)</span>
+            </button>
+          </div>
           <input
-            type="url"
+            type="text"
+            placeholder="https://facebook.com/..."
             value={links.facebook}
             onChange={(e) => setLinks({ ...links, facebook: e.target.value })}
             className="w-full bg-gray-50 border border-gray-300 text-blue-700 font-mono font-bold rounded-lg p-2.5 outline-none focus:border-[#D71920]"
@@ -82,9 +181,20 @@ export const SocialManagerView: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-gray-800 font-bold mb-1">Instagram प्रोफ़ाइल लिंक</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-gray-800 font-bold">Instagram प्रोफ़ाइल लिंक</label>
+            <button
+              type="button"
+              onClick={() => handleTestLink(links.instagram)}
+              className="text-[11px] text-pink-700 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>जांचें (Test Link)</span>
+            </button>
+          </div>
           <input
-            type="url"
+            type="text"
+            placeholder="https://instagram.com/..."
             value={links.instagram}
             onChange={(e) => setLinks({ ...links, instagram: e.target.value })}
             className="w-full bg-gray-50 border border-gray-300 text-pink-700 font-mono font-bold rounded-lg p-2.5 outline-none focus:border-[#D71920]"
@@ -92,9 +202,20 @@ export const SocialManagerView: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-gray-800 font-bold mb-1">X (Twitter) प्रोफ़ाइल लिंक</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-gray-800 font-bold">X (Twitter) प्रोफ़ाइल लिंक</label>
+            <button
+              type="button"
+              onClick={() => handleTestLink(links.twitter)}
+              className="text-[11px] text-gray-800 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>जांचें (Test Link)</span>
+            </button>
+          </div>
           <input
-            type="url"
+            type="text"
+            placeholder="https://x.com/..."
             value={links.twitter}
             onChange={(e) => setLinks({ ...links, twitter: e.target.value })}
             className="w-full bg-gray-50 border border-gray-300 text-gray-800 font-mono font-bold rounded-lg p-2.5 outline-none focus:border-[#D71920]"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, ShieldCheck, Award } from 'lucide-react';
+import { Users, Plus, ShieldCheck, Award, Trash2, AlertCircle } from 'lucide-react';
 import { Reporter } from '../../../types/news';
 import { NewsService } from '../../../services/newsService';
 
@@ -9,6 +9,7 @@ export const ReporterManagerView: React.FC = () => {
   const [designation, setDesignation] = useState('जिला संवाददाता');
   const [district, setDistrict] = useState('उज्जैन');
   const [mobile, setMobile] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<Reporter | null>(null);
 
   useEffect(() => {
     setReporters(NewsService.getReporters());
@@ -30,6 +31,14 @@ export const ReporterManagerView: React.FC = () => {
     setName('');
     setMobile('');
     setReporters(NewsService.getReporters());
+  };
+
+  const confirmDeleteReporter = () => {
+    if (deleteTarget) {
+      NewsService.deleteReporter(deleteTarget.id);
+      setReporters(NewsService.getReporters());
+      setDeleteTarget(null);
+    }
   };
 
   return (
@@ -109,6 +118,7 @@ export const ReporterManagerView: React.FC = () => {
                 <th className="p-3">पदनाम</th>
                 <th className="p-3">स्थान</th>
                 <th className="p-3">मोबाइल</th>
+                <th className="p-3 text-right">कार्रवाई</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -119,12 +129,59 @@ export const ReporterManagerView: React.FC = () => {
                   <td className="p-3 text-gray-800 font-bold">{r.designation}</td>
                   <td className="p-3 text-gray-600">{r.districtName}</td>
                   <td className="p-3 font-mono font-bold text-gray-800">{r.mobile}</td>
+                  <td className="p-3 text-right">
+                    <button
+                      onClick={() => setDeleteTarget(r)}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
+                      title="हटाएं"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <div className="bg-white border-2 border-red-300 rounded-2xl max-w-md w-full p-6 text-gray-900 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-3 bg-red-100 rounded-full">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-black text-base text-gray-900 font-serif-devanagari">संवाददाता हटाने की पुष्टि करें</h3>
+                <p className="text-xs text-gray-500 font-medium">यह सदस्य सूची से स्थायी रूप से हट जाएगा।</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 border border-gray-200 p-3 rounded-xl text-xs font-bold text-gray-800">
+              "{deleteTarget.name}" ({deleteTarget.designation} - {deleteTarget.districtName})
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-600 hover:text-gray-900 cursor-pointer"
+              >
+                रद्द करें
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteReporter}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer"
+              >
+                हाँ, सदस्य हटाएं (Delete)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

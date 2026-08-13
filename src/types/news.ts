@@ -149,7 +149,7 @@ export interface IDCard {
 export interface JoiningLetter {
   id: string;
   letterNo: string;
-  applicationId: string;
+  applicationId?: string;
   memberId: string;
   name: string;
   designation: string;
@@ -159,6 +159,7 @@ export interface JoiningLetter {
   joiningDate: string;
   responsibilities: string[];
   terms: string[];
+  editorName?: string;
 }
 
 export type AdType = 'top_banner' | 'sidebar' | 'in_feed' | 'article' | 'mobile';

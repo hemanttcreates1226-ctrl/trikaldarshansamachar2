@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flame, TrendingUp, Sparkles, ChevronRight, Zap } from 'lucide-react';
+import { Flame, TrendingUp, Sparkles, ChevronRight } from 'lucide-react';
 import { NewsArticle } from '../../types/news';
 import { FeaturedNewsCard, CompactNewsCard, TrendingNewsCard } from './NewsCard';
 
@@ -31,10 +31,6 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               प्रमुख समाचार एवं विश्लेषणात्मक रिपोर्ट
             </h2>
           </div>
-          <span className="text-xs font-bold text-[#D71920] flex items-center gap-1">
-            <Zap className="w-3.5 h-3.5 fill-[#D71920]" />
-            लाइव सम्पादकीय कवरेज
-          </span>
         </div>
 
         {/* Editorial Grid */}
