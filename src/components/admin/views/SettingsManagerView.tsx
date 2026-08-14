@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Save, Check, Upload, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { NewsService } from '../../../services/newsService';
+import { DEFAULT_LOGO_BASE64 } from '../../../assets/defaultLogoData';
 import { TrikalLogo } from '../../brand/TrikalLogo';
 
 export const SettingsManagerView: React.FC = () => {
@@ -22,7 +23,7 @@ export const SettingsManagerView: React.FC = () => {
 
   useEffect(() => {
     const s = NewsService.getSettings();
-    const logoToUse = s.logoImageUrl || '/logo.png';
+    const logoToUse = (s.logoImageUrl && s.logoImageUrl !== '/logo.png') ? s.logoImageUrl : DEFAULT_LOGO_BASE64;
     setForm({
       logoImageUrl: logoToUse,
       brandTitle: s.brandTitle || 'त्रिकाल दर्शन',
@@ -97,11 +98,11 @@ export const SettingsManagerView: React.FC = () => {
             <div className="flex items-center gap-4 flex-wrap">
               <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#D71920] bg-white shrink-0 flex items-center justify-center shadow-xs">
                 <img
-                  src={form.logoImageUrl || '/logo.png'}
+                  src={form.logoImageUrl || DEFAULT_LOGO_BASE64}
                   alt="Logo Preview"
                   className="w-full h-full object-contain"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = '/logo.png';
+                    (e.target as HTMLImageElement).src = DEFAULT_LOGO_BASE64;
                   }}
                 />
               </div>
@@ -130,7 +131,7 @@ export const SettingsManagerView: React.FC = () => {
                   {form.logoImageUrl && (
                     <button
                       type="button"
-                      onClick={() => setForm({ ...form, logoImageUrl: '/logo.png' })}
+                      onClick={() => setForm({ ...form, logoImageUrl: DEFAULT_LOGO_BASE64 })}
                       className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <RefreshCw className="w-3 h-3" />

@@ -12,9 +12,10 @@ import {
   WebsiteSettings,
   PanchangInfo
 } from '../types/news';
+import { DEFAULT_LOGO_BASE64 } from '../assets/defaultLogoData';
 
 export const INITIAL_SETTINGS: WebsiteSettings = {
-  logoImageUrl: '/logo.png',
+  logoImageUrl: DEFAULT_LOGO_BASE64,
   brandTitle: "त्रिकाल दर्शन",
   brandBadgeText: "समाचार",
   siteName: "त्रिकाल दर्शन समाचार",

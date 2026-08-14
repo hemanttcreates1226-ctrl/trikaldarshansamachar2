@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NewsService } from '../../services/newsService';
+import { DEFAULT_LOGO_BASE64 } from '../../assets/defaultLogoData';
 
 interface LogoProps {
   variant?: 'full' | 'compact' | 'light' | 'white';
@@ -15,7 +16,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
   className = ''
 }) => {
   const [brandSettings, setBrandSettings] = useState({
-    logoImageUrl: '/logo.png',
+    logoImageUrl: DEFAULT_LOGO_BASE64,
     brandTitle: 'त्रिकाल दर्शन',
     brandBadgeText: 'समाचार',
     taglineHindi: 'सत्य की त्रिकाल दृष्टि'
@@ -25,7 +26,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
     try {
       const s = NewsService.getSettings();
       setBrandSettings({
-        logoImageUrl: s.logoImageUrl || '/logo.png',
+        logoImageUrl: (s.logoImageUrl && s.logoImageUrl !== '/logo.png') ? s.logoImageUrl : DEFAULT_LOGO_BASE64,
         brandTitle: s.brandTitle || s.siteName || 'त्रिकाल दर्शन',
         brandBadgeText: s.brandBadgeText || 'समाचार',
         taglineHindi: s.taglineHindi || s.tagline || 'सत्य की त्रिकाल दृष्टि'
@@ -72,16 +73,16 @@ export const TrikalLogo: React.FC<LogoProps> = ({
 
   return (
     <div className={`inline-flex items-center gap-2 sm:gap-3 select-none max-w-full ${className}`}>
-      {/* Visual Logo Emblem: Locked official high resolution logo image */}
+      {/* Visual Logo Emblem: High-resolution self-contained embedded official emblem */}
       <div className="relative flex-shrink-0 flex items-center justify-center">
         <img
-          src={brandSettings.logoImageUrl || '/logo.png'}
+          src={brandSettings.logoImageUrl || DEFAULT_LOGO_BASE64}
           alt={brandSettings.brandTitle}
           referrerPolicy="no-referrer"
           onError={(e) => {
             const target = e.currentTarget;
-            if (target.src !== window.location.origin + '/logo.png') {
-              target.src = '/logo.png';
+            if (target.src !== DEFAULT_LOGO_BASE64) {
+              target.src = DEFAULT_LOGO_BASE64;
             }
           }}
           className={`${imageSizeClasses} object-contain rounded-full`}
