@@ -78,6 +78,12 @@ export const TrikalLogo: React.FC<LogoProps> = ({
           src={brandSettings.logoImageUrl || '/logo.png'}
           alt={brandSettings.brandTitle}
           referrerPolicy="no-referrer"
+          onError={(e) => {
+            const target = e.currentTarget;
+            if (target.src !== window.location.origin + '/logo.png') {
+              target.src = '/logo.png';
+            }
+          }}
           className={`${imageSizeClasses} object-contain rounded-full`}
         />
       </div>

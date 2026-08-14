@@ -33,7 +33,8 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
   onNavigate,
   onSelectArticle
 }) => {
-  const [article, setArticle] = useState<NewsArticle | null>(null);
+  const [article, setArticle] = useState<NewsArticle | null>(() => NewsService.getArticleByIdOrSlug(articleIdOrSlug));
+  const [loading, setLoading] = useState<boolean>(() => !NewsService.getArticleByIdOrSlug(articleIdOrSlug));
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg' | 'xl'>('base');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [speechSynth, setSpeechSynth] = useState<SpeechSynthesis | null>(null);
@@ -45,20 +46,62 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
 
   useEffect(() => {
-    const fetched = NewsService.getArticleByIdOrSlug(articleIdOrSlug);
-    setArticle(fetched);
+    let isMounted = true;
+
+    const loadArticle = async () => {
+      // 1. Check local cache
+      const local = NewsService.getArticleByIdOrSlug(articleIdOrSlug);
+      if (local) {
+        if (isMounted) {
+          setArticle(local);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // 2. Fetch asynchronously from server if not found in local cache
+      if (isMounted) setLoading(true);
+      const serverFetched = await NewsService.fetchArticleAsync(articleIdOrSlug);
+      if (isMounted) {
+        setArticle(serverFetched);
+        setLoading(false);
+      }
+    };
+
+    loadArticle();
     window.scrollTo(0, 0);
+
+    const handleUpdate = () => {
+      const updated = NewsService.getArticleByIdOrSlug(articleIdOrSlug);
+      if (updated && isMounted) {
+        setArticle(updated);
+        setLoading(false);
+      }
+    };
+
+    window.addEventListener('tds_data_updated', handleUpdate);
 
     if ('speechSynthesis' in window) {
       setSpeechSynth(window.speechSynthesis);
     }
 
     return () => {
+      isMounted = false;
+      window.removeEventListener('tds_data_updated', handleUpdate);
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
     };
   }, [articleIdOrSlug]);
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto py-24 px-4 text-center space-y-4">
+        <div className="w-10 h-10 border-3 border-[#D71920] border-t-transparent rounded-full animate-spin mx-auto"></div>
+        <p className="text-gray-600 font-bold text-sm">समाचार लोड हो रहा है...</p>
+      </div>
+    );
+  }
 
   if (!article) {
     return (
@@ -68,7 +111,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
         </h2>
         <button
           onClick={() => onNavigate('/')}
-          className="px-5 py-2.5 bg-[#B7652A] text-white rounded-lg font-bold text-sm"
+          className="px-5 py-2.5 bg-[#D71920] hover:bg-[#b01319] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer"
         >
           मुख्य पृष्ठ पर लौटें
         </button>

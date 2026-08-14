@@ -14,15 +14,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({ initialQuery = '', onSel
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<NewsArticle[]>([]);
 
-  useEffect(() => {
-    if (initialQuery) {
-      handleSearch(initialQuery);
-    }
-  }, [initialQuery]);
-
   const handleSearch = (q: string) => {
     const trimmed = q.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      // show recent articles if search query is empty
+      const recent = NewsService.getArticles({ limit: 20 });
+      setResults(recent);
+      return;
+    }
 
     const matched = NewsService.getArticles({
       searchQuery: trimmed,
@@ -30,6 +29,17 @@ export const SearchPage: React.FC<SearchPageProps> = ({ initialQuery = '', onSel
     });
     setResults(matched);
   };
+
+  useEffect(() => {
+    handleSearch(query || initialQuery);
+
+    const handleUpdate = () => {
+      handleSearch(query || initialQuery);
+    };
+
+    window.addEventListener('tds_data_updated', handleUpdate);
+    return () => window.removeEventListener('tds_data_updated', handleUpdate);
+  }, [initialQuery, query]);
 
   return (
     <div className="py-8 px-4 bg-[#FFFDF9] min-h-screen">

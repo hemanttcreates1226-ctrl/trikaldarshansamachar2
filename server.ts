@@ -164,6 +164,17 @@ async function startServer() {
     res.json(inMemoryDb.news);
   });
 
+  app.get("/api/articles/:idOrSlug", (req, res) => {
+    const { idOrSlug } = req.params;
+    const found = inMemoryDb.news.find((a: any) => a.id === idOrSlug || a.slug === idOrSlug);
+    if (found) {
+      found.views = (found.views || 0) + 1;
+      saveDatabaseToDisk();
+      return res.json(found);
+    }
+    res.status(404).json({ error: "Article not found" });
+  });
+
   app.post("/api/articles", (req, res) => {
     const article = req.body;
     if (!article) return res.status(400).json({ error: "Article data required" });

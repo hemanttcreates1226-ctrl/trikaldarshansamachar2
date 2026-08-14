@@ -20,16 +20,23 @@ export const CategoryNewsPage: React.FC<CategoryNewsPageProps> = ({
   const [categoryObj, setCategoryObj] = useState<Category | null>(null);
 
   useEffect(() => {
-    const cats = NewsService.getCategories();
-    const foundCat = cats.find(c => c.slug === categorySlug);
-    setCategoryObj(foundCat || null);
+    const loadCategoryArticles = () => {
+      const cats = NewsService.getCategories();
+      const foundCat = cats.find(c => c.slug === categorySlug);
+      setCategoryObj(foundCat || null);
 
-    const fetched = NewsService.getArticles({
-      categorySlug: categorySlug === 'all' ? undefined : categorySlug,
-      limit: 20
-    });
-    setArticles(fetched);
+      const fetched = NewsService.getArticles({
+        categorySlug: categorySlug === 'all' ? undefined : categorySlug,
+        limit: 20
+      });
+      setArticles(fetched);
+    };
+
+    loadCategoryArticles();
     window.scrollTo(0, 0);
+
+    window.addEventListener('tds_data_updated', loadCategoryArticles);
+    return () => window.removeEventListener('tds_data_updated', loadCategoryArticles);
   }, [categorySlug]);
 
   return (

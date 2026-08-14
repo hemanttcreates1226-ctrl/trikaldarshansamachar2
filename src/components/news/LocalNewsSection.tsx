@@ -19,19 +19,22 @@ export const LocalNewsSection: React.FC<LocalNewsSectionProps> = ({
   const [selectedDistrictId, setSelectedDistrictId] = useState<string>('dt-ujn');
   const [localArticles, setLocalArticles] = useState<NewsArticle[]>([]);
 
-  useEffect(() => {
+  const loadData = () => {
     setStates(NewsService.getStates());
     const dts = NewsService.getDistricts(selectedStateId);
     setDistricts(dts);
-  }, [selectedStateId]);
-
-  useEffect(() => {
     const articles = NewsService.getArticles({
       stateId: selectedStateId === 'all' ? undefined : selectedStateId,
       districtId: selectedDistrictId === 'all' ? undefined : selectedDistrictId,
       limit: 6
     });
     setLocalArticles(articles);
+  };
+
+  useEffect(() => {
+    loadData();
+    window.addEventListener('tds_data_updated', loadData);
+    return () => window.removeEventListener('tds_data_updated', loadData);
   }, [selectedStateId, selectedDistrictId]);
 
   const activeStateObj = states.find(s => s.id === selectedStateId);

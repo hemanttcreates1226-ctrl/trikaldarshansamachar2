@@ -94,33 +94,48 @@ export class NewsService {
     if (this.isInitialized || typeof window === 'undefined') return;
     this.isInitialized = true;
 
-    // Initial fetch from server
-    this.syncFromServer();
+    // Initial immediate fetch from server
+    this.syncFromServer(true);
 
-    // Background periodic poll every 15 seconds for live news updates
+    // Background periodic poll every 4 seconds for instantaneous live news updates
     this.syncInterval = setInterval(() => {
       this.syncFromServer();
-    }, 15000);
+    }, 4000);
 
-    // Refresh when user returns to tab
+    // Refresh immediately when user switches tabs or returns to browser
     window.addEventListener('focus', () => {
-      this.syncFromServer();
+      this.syncFromServer(true);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        this.syncFromServer(true);
+      }
     });
 
     window.addEventListener('online', () => {
-      this.syncFromServer();
+      this.syncFromServer(true);
     });
   }
 
-  static async syncFromServer(): Promise<boolean> {
+  static async syncFromServer(force: boolean = false): Promise<boolean> {
     try {
       const res = await apiCall('/api/data');
       if (!res || !res.success || !res.data) return false;
 
       const serverData = res.data;
       const lastLocalSync = Number(localStorage.getItem(STORAGE_KEYS.LAST_SYNC) || '0');
+      const localArticles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, []);
 
-      if (serverData.lastUpdated && serverData.lastUpdated > lastLocalSync) {
+      const serverUpdated = Number(serverData.lastUpdated || 0);
+      const shouldSync =
+        force ||
+        localArticles.length === 0 ||
+        !lastLocalSync ||
+        serverUpdated > lastLocalSync ||
+        (Array.isArray(serverData.news) && serverData.news.length !== localArticles.length);
+
+      if (shouldSync) {
         if (Array.isArray(serverData.news)) setItem(STORAGE_KEYS.NEWS, serverData.news, false);
         if (Array.isArray(serverData.categories)) setItem(STORAGE_KEYS.CATEGORIES, serverData.categories, false);
         if (Array.isArray(serverData.states)) setItem(STORAGE_KEYS.STATES, serverData.states, false);
@@ -134,8 +149,8 @@ export class NewsService {
         if (serverData.settings) setItem(STORAGE_KEYS.SETTINGS, serverData.settings, false);
         if (serverData.panchang) setItem(STORAGE_KEYS.PANCHANG, serverData.panchang, false);
 
-        localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(serverData.lastUpdated));
-        window.dispatchEvent(new Event('tds_data_updated'));
+        localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(serverUpdated || Date.now()));
+        window.dispatchEvent(new CustomEvent('tds_data_updated', { detail: { source: 'server_sync' } }));
         return true;
       }
       return false;
@@ -246,6 +261,32 @@ export class NewsService {
     return null;
   }
 
+  static async fetchArticleAsync(idOrSlug: string): Promise<NewsArticle | null> {
+    // 1. Try local cache first
+    const cached = this.getArticleByIdOrSlug(idOrSlug);
+    if (cached) return cached;
+
+    // 2. Fetch directly from server API if not found locally
+    try {
+      const serverArticle = await apiCall(`/api/articles/${encodeURIComponent(idOrSlug)}`);
+      if (serverArticle && serverArticle.id) {
+        const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
+        const existingIdx = articles.findIndex(a => a.id === serverArticle.id);
+        if (existingIdx !== -1) {
+          articles[existingIdx] = serverArticle;
+        } else {
+          articles.unshift(serverArticle);
+        }
+        setItem(STORAGE_KEYS.NEWS, articles);
+        return serverArticle;
+      }
+    } catch {
+      // offline fallback
+    }
+
+    return null;
+  }
+
   static incrementViews(id: string): void {
     const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
     const found = articles.find(a => a.id === id || a.slug === id);
@@ -334,7 +375,13 @@ export class NewsService {
     }
 
     setItem(STORAGE_KEYS.NEWS, articles);
-    apiCall('/api/articles', 'POST', targetArticle);
+    localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now()));
+
+    // Synchronize to server immediately and push full snapshot
+    apiCall('/api/articles', 'POST', targetArticle).then(() => {
+      NewsService.pushSnapshotToServer();
+    });
+
     return targetArticle;
   }
 
@@ -342,7 +389,11 @@ export class NewsService {
     const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
     const filtered = articles.filter(a => a.id !== id);
     setItem(STORAGE_KEYS.NEWS, filtered);
-    apiCall(`/api/articles/${id}`, 'DELETE');
+    localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now()));
+
+    apiCall(`/api/articles/${id}`, 'DELETE').then(() => {
+      NewsService.pushSnapshotToServer();
+    });
   }
 
   // --- CATEGORIES ---
@@ -909,7 +960,9 @@ export class NewsService {
       apiCall('/api/social-links', 'POST', updatedArray);
     }
 
-    apiCall('/api/settings', 'POST', updated);
+    apiCall('/api/settings', 'POST', updated).then(() => {
+      NewsService.pushSnapshotToServer();
+    });
     return updated;
   }
 
