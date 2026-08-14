@@ -28,6 +28,7 @@ import {
   INITIAL_SETTINGS,
   INITIAL_PANCHANG
 } from '../data/initialData';
+import { FirestoreSyncService } from './firestoreService';
 
 const STORAGE_KEYS = {
   NEWS: 'tds_news_articles_v1',
@@ -94,7 +95,16 @@ export class NewsService {
     if (this.isInitialized || typeof window === 'undefined') return;
     this.isInitialized = true;
 
-    // Initial immediate fetch from server
+    // 1. Initialize Cloud Firestore Real-time Listener
+    try {
+      FirestoreSyncService.init((source) => {
+        window.dispatchEvent(new CustomEvent('tds_data_updated', { detail: { source } }));
+      });
+    } catch (e) {
+      console.warn('Firestore sync fallback:', e);
+    }
+
+    // 2. Initial immediate fetch from server
     this.syncFromServer(true);
 
     // Background periodic poll every 4 seconds for instantaneous live news updates
@@ -377,7 +387,10 @@ export class NewsService {
     setItem(STORAGE_KEYS.NEWS, articles);
     localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now()));
 
-    // Synchronize to server immediately and push full snapshot
+    // 1. Save to Cloud Firestore for real-time live synchronization across all browsers/devices
+    FirestoreSyncService.saveArticle(targetArticle);
+
+    // 2. Synchronize to server immediately and push full snapshot
     apiCall('/api/articles', 'POST', targetArticle).then(() => {
       NewsService.pushSnapshotToServer();
     });
@@ -391,6 +404,10 @@ export class NewsService {
     setItem(STORAGE_KEYS.NEWS, filtered);
     localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now()));
 
+    // 1. Delete from Cloud Firestore
+    FirestoreSyncService.deleteArticle(id);
+
+    // 2. Delete from server
     apiCall(`/api/articles/${id}`, 'DELETE').then(() => {
       NewsService.pushSnapshotToServer();
     });
@@ -439,6 +456,7 @@ export class NewsService {
     }
 
     setItem(STORAGE_KEYS.CATEGORIES, categories);
+    FirestoreSyncService.saveCategory(targetCat);
     apiCall('/api/categories', 'POST', targetCat);
     return targetCat;
   }
@@ -446,6 +464,7 @@ export class NewsService {
   static deleteCategory(id: string): void {
     const categories: Category[] = getItem(STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
     setItem(STORAGE_KEYS.CATEGORIES, categories.filter(c => c.id !== id));
+    FirestoreSyncService.deleteCategory(id);
     apiCall(`/api/categories/${id}`, 'DELETE');
   }
 
@@ -569,6 +588,7 @@ export class NewsService {
     }
 
     setItem(STORAGE_KEYS.REPORTERS, reporters);
+    FirestoreSyncService.saveReporter(targetRep);
     apiCall('/api/reporters', 'POST', targetRep);
     return targetRep;
   }
@@ -598,6 +618,7 @@ export class NewsService {
 
     apps.unshift(newApp);
     setItem(STORAGE_KEYS.APPLICATIONS, apps);
+    FirestoreSyncService.saveApplication(newApp);
     apiCall('/api/applications', 'POST', newApp);
     return newApp;
   }
@@ -861,6 +882,7 @@ export class NewsService {
     }
 
     setItem(STORAGE_KEYS.ADVERTISEMENTS, ads);
+    FirestoreSyncService.saveAdvertisement(targetAd);
     apiCall('/api/advertisements', 'POST', targetAd);
     return targetAd;
   }
@@ -868,6 +890,7 @@ export class NewsService {
   static deleteAdvertisement(id: string): void {
     const ads: Advertisement[] = getItem(STORAGE_KEYS.ADVERTISEMENTS, INITIAL_ADVERTISEMENTS);
     setItem(STORAGE_KEYS.ADVERTISEMENTS, ads.filter(a => a.id !== id));
+    FirestoreSyncService.deleteAdvertisement(id);
     apiCall(`/api/advertisements/${id}`, 'DELETE');
   }
 
@@ -933,6 +956,7 @@ export class NewsService {
     const current = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
     const updated = { ...current, ...settings };
     setItem(STORAGE_KEYS.SETTINGS, updated);
+    FirestoreSyncService.saveSettings(updated);
 
     // If socialLinks object was included, also update STORAGE_KEYS.SOCIAL_LINKS
     if (settings.socialLinks) {
@@ -968,6 +992,19 @@ export class NewsService {
 
   static getPanchang(): PanchangInfo {
     return getItem(STORAGE_KEYS.PANCHANG, INITIAL_PANCHANG);
+  }
+
+  // --- REAL-TIME FIRESTORE ON-SNAPSHOT SUBSCRIBERS ---
+  static subscribeToNews(callback: (articles: NewsArticle[]) => void): () => void {
+    return FirestoreSyncService.subscribeToArticles(callback);
+  }
+
+  static subscribeToSettings(callback: (settings: WebsiteSettings) => void): () => void {
+    return FirestoreSyncService.subscribeToSettings(callback);
+  }
+
+  static subscribeToCategories(callback: (categories: Category[]) => void): () => void {
+    return FirestoreSyncService.subscribeToCategories(callback);
   }
 }
 

@@ -58,14 +58,29 @@ export function App() {
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('hashchange', handlePopState);
 
-    // Listen for data updates (e.g., from Admin edits)
+    // Listen for data updates (e.g., from Admin edits or server polling)
     const handleUpdate = () => loadData();
     window.addEventListener('tds_data_updated', handleUpdate);
+
+    // Direct Firestore onSnapshot real-time listener for instantaneous reactive UI
+    const unsubscribeFirestoreNews = NewsService.subscribeToNews((realtimeArticles) => {
+      if (realtimeArticles && realtimeArticles.length > 0) {
+        setArticles(realtimeArticles.slice(0, 40));
+      }
+    });
+
+    const unsubscribeFirestoreCategories = NewsService.subscribeToCategories((realtimeCats) => {
+      if (realtimeCats && realtimeCats.length > 0) {
+        setCategories(realtimeCats);
+      }
+    });
     
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('hashchange', handlePopState);
       window.removeEventListener('tds_data_updated', handleUpdate);
+      unsubscribeFirestoreNews();
+      unsubscribeFirestoreCategories();
     };
   }, []);
 

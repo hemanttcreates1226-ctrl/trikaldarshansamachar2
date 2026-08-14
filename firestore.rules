@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // News articles - publicly readable so any user on any link/browser can read
+    match /news/{articleId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // Website & Brand Settings
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Categories & Taxonomy
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // States & Districts
+    match /states/{stateId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /districts/{districtId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Advertisements
+    match /advertisements/{adId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Press Cards & Joining Letters
+    match /press_cards/{cardId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /joining_letters/{letterId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Panchang & System Data
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Default fallback
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

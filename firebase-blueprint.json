@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "NewsArticle": {
+      "title": "NewsArticle",
+      "description": "Represents a published news article or investigative story",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "title": { "type": "string", "description": "Headline in Hindi" },
+        "slug": { "type": "string", "description": "URL slug" },
+        "content": { "type": "string", "description": "Full article body" },
+        "summary": { "type": "string", "description": "Short excerpt" },
+        "category": { "type": "string", "description": "Primary category" },
+        "categorySlug": { "type": "string", "description": "Category slug" },
+        "imageUrl": { "type": "string", "description": "Featured photo URL" },
+        "publishDate": { "type": "string", "description": "Publication ISO date or formatted string" },
+        "author": { "type": "string", "description": "Reporter name" },
+        "views": { "type": "number", "description": "View count" },
+        "isBreaking": { "type": "boolean", "description": "Breaking news flag" },
+        "isLeadStory": { "type": "boolean", "description": "Lead headline story flag" },
+        "isEditorPick": { "type": "boolean", "description": "Editor pick flag" }
+      },
+      "required": ["id", "title", "slug", "content", "categorySlug", "publishDate", "author"]
+    },
+    "WebsiteSettings": {
+      "title": "WebsiteSettings",
+      "description": "Global website configuration, branding and social media handles",
+      "type": "object",
+      "properties": {
+        "brandTitle": { "type": "string", "description": "Brand name" },
+        "brandBadgeText": { "type": "string", "description": "Brand badge label" },
+        "siteName": { "type": "string", "description": "Full portal title" },
+        "taglineHindi": { "type": "string", "description": "Hindi slogan" },
+        "logoImageUrl": { "type": "string", "description": "Logo URL or base64 data" }
+      }
+    },
+    "Category": {
+      "title": "Category",
+      "description": "News category navigation item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Category ID" },
+        "name": { "type": "string", "description": "Category name in Hindi" },
+        "slug": { "type": "string", "description": "URL slug" },
+        "sortOrder": { "type": "number", "description": "Order index" }
+      },
+      "required": ["id", "name", "slug"]
+    }
+  },
+  "firestore": {
+    "/news/{articleId}": {
+      "schema": "NewsArticle",
+      "description": "Live news articles collection"
+    },
+    "/settings/{settingId}": {
+      "schema": "WebsiteSettings",
+      "description": "Global portal configurations"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "News categories taxonomy"
+    }
+  }
+}
