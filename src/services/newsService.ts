@@ -60,7 +60,7 @@ function setItem<T>(key: string, value: T, notify = true): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     if (notify && typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('tds_data_updated'));
+      window.dispatchEvent(new CustomEvent('tds_data_updated', { detail: { key } }));
     }
   } catch (err) {
     console.error(`Error saving ${key} to localStorage`, err);
@@ -81,10 +81,34 @@ async function apiCall(endpoint: string, method: string = 'GET', body?: any): Pr
     const res = await fetch(endpoint, options);
     if (!res.ok) return null;
     return await res.json();
-  } catch (err) {
-    // Graceful offline fallback
+  } catch {
+    // Graceful offline/static fallback
     return null;
   }
+}
+
+function mergeArticleLists(existing: NewsArticle[], incoming: NewsArticle[]): NewsArticle[] {
+  const map = new Map<string, NewsArticle>();
+  for (const a of existing) {
+    if (a && a.id) map.set(a.id, a);
+  }
+  for (const b of incoming) {
+    if (b && b.id) {
+      const prev = map.get(b.id);
+      if (!prev) {
+        map.set(b.id, b);
+      } else {
+        const timePrev = new Date(prev.updatedDate || prev.publishDate || 0).getTime();
+        const timeIncoming = new Date(b.updatedDate || b.publishDate || 0).getTime();
+        if (timeIncoming >= timePrev) {
+          map.set(b.id, { ...prev, ...b });
+        }
+      }
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    return new Date(b.publishDate || 0).getTime() - new Date(a.publishDate || 0).getTime();
+  });
 }
 
 export class NewsService {
@@ -104,22 +128,22 @@ export class NewsService {
       console.warn('Firestore sync fallback:', e);
     }
 
-    // 2. Initial immediate fetch from server
+    // 2. Initial background sync from server
     this.syncFromServer(true);
 
-    // Background periodic poll every 4 seconds for instantaneous live news updates
+    // Background periodic poll every 5 seconds
     this.syncInterval = setInterval(() => {
       this.syncFromServer();
-    }, 4000);
+    }, 5000);
 
     // Refresh immediately when user switches tabs or returns to browser
     window.addEventListener('focus', () => {
-      this.syncFromServer(true);
+      this.syncFromServer(false);
     });
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        this.syncFromServer(true);
+        this.syncFromServer(false);
       }
     });
 
@@ -142,11 +166,13 @@ export class NewsService {
         force ||
         localArticles.length === 0 ||
         !lastLocalSync ||
-        serverUpdated > lastLocalSync ||
-        (Array.isArray(serverData.news) && serverData.news.length !== localArticles.length);
+        serverUpdated > lastLocalSync;
 
       if (shouldSync) {
-        if (Array.isArray(serverData.news)) setItem(STORAGE_KEYS.NEWS, serverData.news, false);
+        if (Array.isArray(serverData.news) && serverData.news.length > 0) {
+          const merged = mergeArticleLists(localArticles, serverData.news);
+          setItem(STORAGE_KEYS.NEWS, merged, false);
+        }
         if (Array.isArray(serverData.categories)) setItem(STORAGE_KEYS.CATEGORIES, serverData.categories, false);
         if (Array.isArray(serverData.states)) setItem(STORAGE_KEYS.STATES, serverData.states, false);
         if (Array.isArray(serverData.districts)) setItem(STORAGE_KEYS.DISTRICTS, serverData.districts, false);
@@ -242,16 +268,20 @@ export class NewsService {
       if (filters.searchQuery && filters.searchQuery.trim() !== '') {
         const query = filters.searchQuery.toLowerCase().trim();
         articles = articles.filter(a => 
-          a.title.toLowerCase().includes(query) ||
-          a.summary.toLowerCase().includes(query) ||
-          a.content.toLowerCase().includes(query) ||
-          a.tags.some(t => t.toLowerCase().includes(query)) ||
-          a.authorName.toLowerCase().includes(query)
+          (a.title && a.title.toLowerCase().includes(query)) ||
+          (a.summary && a.summary.toLowerCase().includes(query)) ||
+          (a.content && a.content.toLowerCase().includes(query)) ||
+          (a.tags && a.tags.some(t => t.toLowerCase().includes(query))) ||
+          (a.authorName && a.authorName.toLowerCase().includes(query))
         );
       }
     }
 
-    articles.sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
+    articles.sort((a, b) => {
+      const dateA = new Date(a.publishDate || a.updatedDate || 0).getTime();
+      const dateB = new Date(b.publishDate || b.updatedDate || 0).getTime();
+      return dateB - dateA;
+    });
 
     if (filters?.limit && filters.limit > 0) {
       return articles.slice(0, filters.limit);
@@ -276,7 +306,51 @@ export class NewsService {
     const cached = this.getArticleByIdOrSlug(idOrSlug);
     if (cached) return cached;
 
-    // 2. Fetch directly from server API if not found locally
+    // 2. Try fetching directly from Cloud Firestore
+    try {
+      const { doc, getDoc, collection, query, where, getDocs } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+
+      // Check by doc ID
+      const docRef = doc(db, 'news', idOrSlug);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const article = docSnap.data() as NewsArticle;
+        if (article && article.id) {
+          const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
+          const existingIdx = articles.findIndex(a => a.id === article.id);
+          if (existingIdx !== -1) {
+            articles[existingIdx] = article;
+          } else {
+            articles.unshift(article);
+          }
+          setItem(STORAGE_KEYS.NEWS, articles);
+          return article;
+        }
+      }
+
+      // Check by slug
+      const q = query(collection(db, 'news'), where('slug', '==', idOrSlug));
+      const qSnap = await getDocs(q);
+      if (!qSnap.empty) {
+        const article = qSnap.docs[0].data() as NewsArticle;
+        if (article && article.id) {
+          const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
+          const existingIdx = articles.findIndex(a => a.id === article.id);
+          if (existingIdx !== -1) {
+            articles[existingIdx] = article;
+          } else {
+            articles.unshift(article);
+          }
+          setItem(STORAGE_KEYS.NEWS, articles);
+          return article;
+        }
+      }
+    } catch (e) {
+      console.warn('Firestore direct fetch notice:', e);
+    }
+
+    // 3. Fetch directly from server API if not found locally or in firestore
     try {
       const serverArticle = await apiCall(`/api/articles/${encodeURIComponent(idOrSlug)}`);
       if (serverArticle && serverArticle.id) {
@@ -299,9 +373,9 @@ export class NewsService {
 
   static incrementViews(id: string): void {
     const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
-    const found = articles.find(a => a.id === id || a.slug === id);
-    if (found) {
-      found.views = (found.views || 0) + 1;
+    const article = articles.find(a => a.id === id);
+    if (article) {
+      article.views = (article.views || 0) + 1;
       setItem(STORAGE_KEYS.NEWS, articles, false);
     }
   }
@@ -331,16 +405,16 @@ export class NewsService {
           featuredImage: articleData.featuredImage || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&q=80',
           categorySlug: articleData.categorySlug || 'latest-news',
           categoryName: articleData.categoryName || 'ताज़ा खबर',
-          stateId: articleData.stateId,
-          stateName: articleData.stateName,
-          districtId: articleData.districtId,
-          districtName: articleData.districtName,
-          cityName: articleData.cityName,
-          reporterId: articleData.reporterId,
-          reporterName: articleData.reporterName,
+          stateId: articleData.stateId || 'st-mp',
+          stateName: articleData.stateName || 'मध्य प्रदेश',
+          districtId: articleData.districtId || 'dt-ujn',
+          districtName: articleData.districtName || 'उज्जैन',
+          cityName: articleData.cityName || '',
+          reporterId: articleData.reporterId || '',
+          reporterName: articleData.reporterName || '',
           authorName: articleData.authorName || 'त्रिकाल सम्पादकीय',
           tags: articleData.tags || ['समाचार', 'त्रिकाल दर्शन'],
-          views: 1,
+          views: articleData.views || 1,
           isBreaking: !!articleData.isBreaking,
           isFeatured: !!articleData.isFeatured,
           isSpecialReport: !!articleData.isSpecialReport,
@@ -364,13 +438,13 @@ export class NewsService {
         featuredImage: articleData.featuredImage || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&q=80',
         categorySlug: articleData.categorySlug || 'latest-news',
         categoryName: articleData.categoryName || 'ताज़ा खबर',
-        stateId: articleData.stateId,
-        stateName: articleData.stateName,
-        districtId: articleData.districtId,
-        districtName: articleData.districtName,
-        cityName: articleData.cityName,
-        reporterId: articleData.reporterId,
-        reporterName: articleData.reporterName,
+        stateId: articleData.stateId || 'st-mp',
+        stateName: articleData.stateName || 'मध्य प्रदेश',
+        districtId: articleData.districtId || 'dt-ujn',
+        districtName: articleData.districtName || 'उज्जैन',
+        cityName: articleData.cityName || '',
+        reporterId: articleData.reporterId || '',
+        reporterName: articleData.reporterName || '',
         authorName: articleData.authorName || 'त्रिकाल सम्पादकीय',
         tags: articleData.tags || ['समाचार', 'त्रिकाल दर्शन'],
         views: 1,
@@ -438,8 +512,9 @@ export class NewsService {
           nameHindi: category.nameHindi || 'नई श्रेणी',
           nameEnglish: category.nameEnglish || 'New Category',
           slug: category.slug || `cat-${Date.now()}`,
+          iconName: category.iconName || 'Newspaper',
           sortOrder: category.sortOrder || categories.length + 1,
-          isHidden: false
+          isHidden: category.isHidden !== undefined ? category.isHidden : false
         };
         categories.push(targetCat);
       }
@@ -449,7 +524,8 @@ export class NewsService {
         nameHindi: category.nameHindi || 'नई श्रेणी',
         nameEnglish: category.nameEnglish || 'New Category',
         slug: category.slug || `cat-${Date.now()}`,
-        sortOrder: category.sortOrder || categories.length + 1,
+        iconName: category.iconName || 'Newspaper',
+        sortOrder: categories.length + 1,
         isHidden: false
       };
       categories.push(targetCat);
@@ -471,6 +547,41 @@ export class NewsService {
   // --- LOCATIONS ---
   static getStates(): State[] {
     return getItem(STORAGE_KEYS.STATES, INITIAL_STATES);
+  }
+
+  static saveState(state: Partial<State>): State {
+    const states: State[] = getItem(STORAGE_KEYS.STATES, INITIAL_STATES);
+    let targetState: State;
+
+    if (state.id) {
+      const idx = states.findIndex(s => s.id === state.id);
+      if (idx !== -1) {
+        targetState = { ...states[idx], ...state };
+        states[idx] = targetState;
+      } else {
+        targetState = {
+          id: state.id,
+          nameHindi: state.nameHindi || 'नया राज्य',
+          nameEnglish: state.nameEnglish || 'New State',
+          slug: state.slug || `state-${Date.now()}`,
+          isEnabled: true
+        };
+        states.push(targetState);
+      }
+    } else {
+      targetState = {
+        id: `st-${Date.now()}`,
+        nameHindi: state.nameHindi || 'नया राज्य',
+        nameEnglish: state.nameEnglish || 'New State',
+        slug: state.slug || `state-${Date.now()}`,
+        isEnabled: true
+      };
+      states.push(targetState);
+    }
+
+    setItem(STORAGE_KEYS.STATES, states);
+    FirestoreSyncService.saveState(targetState);
+    return targetState;
   }
 
   static getDistricts(stateId?: string): District[] {
@@ -518,6 +629,7 @@ export class NewsService {
     }
 
     setItem(STORAGE_KEYS.DISTRICTS, districts);
+    FirestoreSyncService.saveDistrict(targetDt);
     apiCall('/api/districts', 'POST', targetDt);
     return targetDt;
   }
@@ -525,6 +637,7 @@ export class NewsService {
   static deleteDistrict(id: string): void {
     const districts: District[] = getItem(STORAGE_KEYS.DISTRICTS, INITIAL_DISTRICTS);
     setItem(STORAGE_KEYS.DISTRICTS, districts.filter(d => d.id !== id));
+    FirestoreSyncService.deleteDistrict(id);
     apiCall(`/api/districts/${id}`, 'DELETE');
   }
 
@@ -597,6 +710,7 @@ export class NewsService {
     const reporters: Reporter[] = getItem(STORAGE_KEYS.REPORTERS, INITIAL_REPORTERS);
     const filtered = reporters.filter(r => r.id !== id);
     setItem(STORAGE_KEYS.REPORTERS, filtered);
+    FirestoreSyncService.deleteReporter(id);
     apiCall(`/api/reporters/${id}`, 'DELETE');
   }
 
@@ -664,6 +778,7 @@ export class NewsService {
 
     apps[idx] = app;
     setItem(STORAGE_KEYS.APPLICATIONS, apps);
+    FirestoreSyncService.saveApplication(app);
     apiCall(`/api/applications/${id}`, 'PUT', { status, adminRemarks: remarks, memberId: app.memberId, pressId: app.pressId });
     return app;
   }
@@ -671,6 +786,7 @@ export class NewsService {
   static deleteApplication(id: string): void {
     const apps: MemberApplication[] = getItem(STORAGE_KEYS.APPLICATIONS, INITIAL_APPLICATIONS);
     setItem(STORAGE_KEYS.APPLICATIONS, apps.filter(a => a.id !== id));
+    FirestoreSyncService.deleteApplication(id);
     apiCall(`/api/applications/${id}`, 'DELETE');
   }
 
@@ -786,6 +902,7 @@ export class NewsService {
     }
 
     setItem(STORAGE_KEYS.JOINING_LETTERS, letters);
+    FirestoreSyncService.saveJoiningLetter(targetLetter);
     apiCall('/api/joining-letters', 'POST', targetLetter);
     return targetLetter;
   }
@@ -794,6 +911,7 @@ export class NewsService {
     const letters: JoiningLetter[] = getItem(STORAGE_KEYS.JOINING_LETTERS, INITIAL_JOINING_LETTERS);
     const filtered = letters.filter(l => l.id !== id);
     setItem(STORAGE_KEYS.JOINING_LETTERS, filtered);
+    FirestoreSyncService.deleteJoiningLetter(id);
     apiCall(`/api/joining-letters/${id}`, 'DELETE');
   }
 
@@ -828,6 +946,7 @@ export class NewsService {
 
     letters.unshift(newLetter);
     setItem(STORAGE_KEYS.JOINING_LETTERS, letters);
+    FirestoreSyncService.saveJoiningLetter(newLetter);
     apiCall('/api/joining-letters', 'POST', newLetter);
     return newLetter;
   }
@@ -898,61 +1017,48 @@ export class NewsService {
     if (!url) return '#';
     let clean = url.trim();
     if (!clean) return '#';
-    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-      clean = `https://${clean}`;
+    if (clean === '#') return '#';
+    if (!/^https?:\/\//i.test(clean)) {
+      clean = 'https://' + clean;
     }
     return clean;
   }
 
   static getSocialLinks(): SocialLink[] {
-    const links = getItem<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
-    const settings = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
-
-    if (settings && settings.socialLinks) {
-      return links.map(l => {
-        const plat = l.platform.toLowerCase();
-        let updatedUrl = l.url;
-        if ((plat === 'whatsapp' || plat === 'whatsappchannel') && settings.socialLinks?.whatsappChannel) {
-          updatedUrl = settings.socialLinks.whatsappChannel;
-        } else if (plat === 'youtube' && settings.socialLinks?.youtube) {
-          updatedUrl = settings.socialLinks.youtube;
-        } else if (plat === 'telegram' && settings.socialLinks?.telegram) {
-          updatedUrl = settings.socialLinks.telegram;
-        } else if (plat === 'facebook' && settings.socialLinks?.facebook) {
-          updatedUrl = settings.socialLinks.facebook;
-        } else if (plat === 'instagram' && settings.socialLinks?.instagram) {
-          updatedUrl = settings.socialLinks.instagram;
-        } else if ((plat === 'twitter' || plat === 'x') && settings.socialLinks?.twitter) {
-          updatedUrl = settings.socialLinks.twitter;
-        }
-        return { ...l, url: this.sanitizeUrl(updatedUrl) };
-      });
-    }
-
-    return links.map(l => ({ ...l, url: this.sanitizeUrl(l.url) }));
+    return getItem(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
   }
 
   static saveSocialLinks(links: SocialLink[]): void {
-    const sanitized = links.map(l => ({ ...l, url: this.sanitizeUrl(l.url) }));
-    setItem(STORAGE_KEYS.SOCIAL_LINKS, sanitized);
-    apiCall('/api/social-links', 'POST', sanitized);
+    setItem(STORAGE_KEYS.SOCIAL_LINKS, links);
+    apiCall('/api/social-links', 'POST', links);
   }
 
-  // --- WEBSITE SETTINGS & PANCHANG ---
+  // --- SETTINGS & BRANDING ---
   static getSettings(): WebsiteSettings {
-    const saved = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
-    const merged = { ...INITIAL_SETTINGS, ...saved };
-    if (!merged.logoImageUrl) {
-      merged.logoImageUrl = INITIAL_SETTINGS.logoImageUrl;
-    }
-    return merged;
+    const defaultSettings: WebsiteSettings = {
+      brandTitle: 'त्रिकाल दर्शन समाचार',
+      brandBadgeText: 'राष्ट्रीय हिन्दी दैनिक',
+      siteName: 'त्रिकाल दर्शन समाचार',
+      taglineHindi: 'सत्यमेव जयते • राष्ट्र का सजग प्रहरी',
+      tagline: 'Truth Prevails • Voice of the Nation',
+      editorName: 'राजकमल पांडेय',
+      contactEmail: 'editor@trikaldarshan.com',
+      contactNumber: '+91 98260 00000',
+      addressHindi: 'प्रेस परिसर, नानाखेड़ा, उज्जैन (म.प्र.) 456010',
+      socialLinks: {
+        facebook: 'https://facebook.com/trikaldarshan',
+        twitter: 'https://twitter.com/trikaldarshan',
+        instagram: 'https://instagram.com/trikaldarshan',
+        youtube: 'https://youtube.com/trikaldarshan',
+        whatsappChannel: 'https://whatsapp.com/channel/trikaldarshan',
+        telegram: 'https://t.me/trikaldarshan'
+      },
+      ...INITIAL_SETTINGS
+    };
+    return getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, defaultSettings);
   }
 
   static updateSettings(settings: Partial<WebsiteSettings>): WebsiteSettings {
-    return this.saveSettings(settings);
-  }
-
-  static saveSettings(settings: Partial<WebsiteSettings>): WebsiteSettings {
     const current = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
     const updated = { ...current, ...settings };
     setItem(STORAGE_KEYS.SETTINGS, updated);
@@ -960,36 +1066,22 @@ export class NewsService {
 
     // If socialLinks object was included, also update STORAGE_KEYS.SOCIAL_LINKS
     if (settings.socialLinks) {
-      const socialLinksObj = settings.socialLinks;
-      const currentArray = getItem<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS);
-      const updatedArray = currentArray.map(item => {
-        const plat = item.platform.toLowerCase();
-        let newUrl = item.url;
-        if ((plat === 'whatsapp' || plat === 'whatsappchannel') && socialLinksObj.whatsappChannel) {
-          newUrl = socialLinksObj.whatsappChannel;
-        } else if (plat === 'youtube' && socialLinksObj.youtube) {
-          newUrl = socialLinksObj.youtube;
-        } else if (plat === 'telegram' && socialLinksObj.telegram) {
-          newUrl = socialLinksObj.telegram;
-        } else if (plat === 'facebook' && socialLinksObj.facebook) {
-          newUrl = socialLinksObj.facebook;
-        } else if (plat === 'instagram' && socialLinksObj.instagram) {
-          newUrl = socialLinksObj.instagram;
-        } else if ((plat === 'twitter' || plat === 'x') && socialLinksObj.twitter) {
-          newUrl = socialLinksObj.twitter;
-        }
-        return { ...item, url: this.sanitizeUrl(newUrl) };
-      });
-      setItem(STORAGE_KEYS.SOCIAL_LINKS, updatedArray);
-      apiCall('/api/social-links', 'POST', updatedArray);
+      const socialArray: SocialLink[] = [
+        { id: 'soc-fb', platform: 'facebook', label: 'Facebook', url: settings.socialLinks.facebook || '', isEnabled: !!settings.socialLinks.facebook },
+        { id: 'soc-tw', platform: 'twitter', label: 'Twitter / X', url: settings.socialLinks.twitter || '', isEnabled: !!settings.socialLinks.twitter },
+        { id: 'soc-yt', platform: 'youtube', label: 'YouTube', url: settings.socialLinks.youtube || '', isEnabled: !!settings.socialLinks.youtube },
+        { id: 'soc-ig', platform: 'instagram', label: 'Instagram', url: settings.socialLinks.instagram || '', isEnabled: !!settings.socialLinks.instagram },
+        { id: 'soc-wa', platform: 'whatsapp', label: 'WhatsApp', url: settings.socialLinks.whatsappChannel || '', isEnabled: !!settings.socialLinks.whatsappChannel },
+        { id: 'soc-tg', platform: 'telegram', label: 'Telegram', url: settings.socialLinks.telegram || '', isEnabled: !!settings.socialLinks.telegram }
+      ];
+      setItem(STORAGE_KEYS.SOCIAL_LINKS, socialArray);
     }
 
-    apiCall('/api/settings', 'POST', updated).then(() => {
-      NewsService.pushSnapshotToServer();
-    });
+    apiCall('/api/settings', 'PUT', updated);
     return updated;
   }
 
+  // --- PANCHANG ---
   static getPanchang(): PanchangInfo {
     return getItem(STORAGE_KEYS.PANCHANG, INITIAL_PANCHANG);
   }
@@ -1005,6 +1097,22 @@ export class NewsService {
 
   static subscribeToCategories(callback: (categories: Category[]) => void): () => void {
     return FirestoreSyncService.subscribeToCategories(callback);
+  }
+
+  static subscribeToAdvertisements(callback: (ads: Advertisement[]) => void): () => void {
+    return FirestoreSyncService.subscribeToAdvertisements(callback);
+  }
+
+  static subscribeToReporters(callback: (reporters: Reporter[]) => void): () => void {
+    return FirestoreSyncService.subscribeToReporters(callback);
+  }
+
+  static subscribeToApplications(callback: (apps: MemberApplication[]) => void): () => void {
+    return FirestoreSyncService.subscribeToApplications(callback);
+  }
+
+  static subscribeToJoiningLetters(callback: (letters: JoiningLetter[]) => void): () => void {
+    return FirestoreSyncService.subscribeToJoiningLetters(callback);
   }
 }
 

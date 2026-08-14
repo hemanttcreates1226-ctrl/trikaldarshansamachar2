@@ -51,6 +51,19 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
 
   useEffect(() => {
     loadAll();
+
+    const handleUpdate = () => loadAll();
+    window.addEventListener('tds_data_updated', handleUpdate);
+    const unsubscribeNews = NewsService.subscribeToNews((realtimeArticles) => {
+      if (realtimeArticles) {
+        setArticles(realtimeArticles);
+      }
+    });
+
+    return () => {
+      window.removeEventListener('tds_data_updated', handleUpdate);
+      unsubscribeNews();
+    };
   }, []);
 
   useEffect(() => {

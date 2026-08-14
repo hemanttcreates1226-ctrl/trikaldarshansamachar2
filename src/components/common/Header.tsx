@@ -56,6 +56,11 @@ export const Header: React.FC<HeaderProps> = ({
 
     loadHeaderData();
     window.addEventListener('tds_data_updated', loadHeaderData);
+    const unsubCategories = NewsService.subscribeToCategories((realtimeCats) => {
+      if (realtimeCats && realtimeCats.length > 0) {
+        setCategories(realtimeCats);
+      }
+    });
 
     const updateDateTime = () => {
       const now = new Date();
@@ -74,6 +79,7 @@ export const Header: React.FC<HeaderProps> = ({
     return () => {
       clearInterval(interval);
       window.removeEventListener('tds_data_updated', loadHeaderData);
+      unsubCategories();
     };
   }, [selectedStateId]);
 

@@ -8,6 +8,18 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTab, onAddNewNews }) => {
+  const [, setTick] = React.useState(0);
+
+  React.useEffect(() => {
+    const handleUpdate = () => setTick(t => t + 1);
+    window.addEventListener('tds_data_updated', handleUpdate);
+    const unsubNews = NewsService.subscribeToNews(() => setTick(t => t + 1));
+    return () => {
+      window.removeEventListener('tds_data_updated', handleUpdate);
+      unsubNews();
+    };
+  }, []);
+
   const articles = NewsService.getArticles({ status: 'published' });
   const allArticles = NewsService.getArticles({ status: 'all' });
   const breakingCount = articles.filter(a => a.isBreaking).length;

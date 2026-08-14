@@ -27,6 +27,9 @@ interface AdminLayoutProps {
   onTabChange: (tab: string) => void;
   onLogout: () => void;
   onNavigateHome: () => void;
+  adminEmail?: string;
+  adminName?: string;
+  adminPhoto?: string;
   children: React.ReactNode;
 }
 
@@ -35,6 +38,9 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   onTabChange,
   onLogout,
   onNavigateHome,
+  adminEmail,
+  adminName,
+  adminPhoto,
   children
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -75,6 +81,17 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          {adminEmail && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-emerald-800 text-xs font-bold shadow-2xs">
+              {adminPhoto ? (
+                <img src={adminPhoto} alt="" className="w-5 h-5 rounded-full object-cover border border-emerald-300" referrerPolicy="no-referrer" />
+              ) : (
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              )}
+              <span className="truncate max-w-[200px]">{adminEmail}</span>
+            </div>
+          )}
+
           <button
             onClick={onNavigateHome}
             className="hidden sm:flex items-center gap-1.5 bg-gray-50 hover:bg-red-50 text-gray-800 px-3.5 py-1.5 rounded-lg text-xs font-bold border border-gray-200 hover:border-red-200 transition"
@@ -84,7 +101,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
           <button
             onClick={onLogout}
-            className="flex items-center gap-1.5 bg-red-600 hover:bg-[#A80F16] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs"
+            className="flex items-center gap-1.5 bg-red-600 hover:bg-[#A80F16] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+            title="लॉगआउट करें"
           >
             <LogOut className="w-4 h-4 text-white" />
             <span className="hidden sm:inline">लॉगआउट</span>
@@ -132,9 +150,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             </nav>
           </div>
 
-          <div className="p-4 border-t border-red-100 bg-red-50/50 text-xs text-gray-700 space-y-1">
-            <p className="font-black text-[#D71920]">प्रधान सम्पादक</p>
-            <p className="text-[10px] font-mono text-gray-600">trikaldarshannews72@gmail.com</p>
+          <div className="p-4 border-t border-red-100 bg-red-50/50 text-xs text-gray-700 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-[#D71920] shrink-0" />
+              <p className="font-black text-[#D71920]">अधिकृत एडमिन (Logged In)</p>
+            </div>
+            {adminName && <p className="font-bold text-gray-800 text-[11px]">{adminName}</p>}
+            <p className="text-[10px] font-mono text-gray-600 break-all">{adminEmail || 'अधिकृत व्यवस्थापक'}</p>
           </div>
         </aside>
 

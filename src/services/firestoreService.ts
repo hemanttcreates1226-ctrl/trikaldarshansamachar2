@@ -2,13 +2,12 @@ import {
   collection,
   doc,
   setDoc,
+  getDocs,
   getDocFromServer,
   deleteDoc,
   onSnapshot,
   writeBatch,
-  Unsubscribe,
-  query,
-  orderBy
+  Unsubscribe
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import {
@@ -18,8 +17,12 @@ import {
   District,
   Reporter,
   MemberApplication,
+  IDCard,
+  JoiningLetter,
   Advertisement,
-  WebsiteSettings
+  SocialLink,
+  WebsiteSettings,
+  PanchangInfo
 } from '../types/news';
 import {
   INITIAL_NEWS,
@@ -27,9 +30,39 @@ import {
   INITIAL_STATES,
   INITIAL_DISTRICTS,
   INITIAL_REPORTERS,
+  INITIAL_APPLICATIONS,
+  INITIAL_ID_CARDS,
+  INITIAL_JOINING_LETTERS,
   INITIAL_ADVERTISEMENTS,
-  INITIAL_SETTINGS
+  INITIAL_SOCIAL_LINKS,
+  INITIAL_SETTINGS,
+  INITIAL_PANCHANG
 } from '../data/initialData';
+
+/**
+ * Deeply strips undefined values and ensures pure serializable Firestore objects.
+ * Firestore strictly rejects documents containing `undefined` properties.
+ */
+export function cleanForFirestore(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return null;
+  }
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => cleanForFirestore(item));
+  }
+  if (typeof obj === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, val] of Object.entries(obj)) {
+      if (val !== undefined) {
+        cleaned[key] = cleanForFirestore(val);
+      }
+    }
+    return cleaned;
+  }
+  return obj;
+}
 
 export class FirestoreSyncService {
   private static isInitialized = false;
@@ -39,6 +72,10 @@ export class FirestoreSyncService {
   private static articleSubscribers: Set<(articles: NewsArticle[]) => void> = new Set();
   private static settingsSubscribers: Set<(settings: WebsiteSettings) => void> = new Set();
   private static categorySubscribers: Set<(categories: Category[]) => void> = new Set();
+  private static advertisementSubscribers: Set<(ads: Advertisement[]) => void> = new Set();
+  private static reporterSubscribers: Set<(reporters: Reporter[]) => void> = new Set();
+  private static applicationSubscribers: Set<(apps: MemberApplication[]) => void> = new Set();
+  private static letterSubscribers: Set<(letters: JoiningLetter[]) => void> = new Set();
 
   static async testConnection(): Promise<boolean> {
     try {
@@ -56,9 +93,6 @@ export class FirestoreSyncService {
     if (this.isInitialized || typeof window === 'undefined') return;
     this.isInitialized = true;
 
-    // Test connection asynchronously
-    this.testConnection();
-
     try {
       // 1. Listen to News collection in Real-time (onSnapshot)
       const newsCol = collection(db, 'news');
@@ -74,19 +108,25 @@ export class FirestoreSyncService {
           const articles: NewsArticle[] = [];
           snapshot.forEach((d) => {
             const data = d.data() as NewsArticle;
-            articles.push(data);
+            if (data && data.id) {
+              articles.push(data);
+            }
           });
 
           // Sort by publishDate descending (newest articles first)
-          articles.sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
+          articles.sort((a, b) => {
+            const dateA = new Date(a.publishDate || a.updatedDate || 0).getTime();
+            const dateB = new Date(b.publishDate || b.updatedDate || 0).getTime();
+            return dateB - dateA;
+          });
 
-          // Save to local storage for immediate offline / cold-start fallback
+          // Update local cache
           localStorage.setItem('tds_news_articles_v1', JSON.stringify(articles));
           localStorage.setItem('tds_last_sync_timestamp', String(Date.now()));
 
           // Notify direct subscribers
           this.articleSubscribers.forEach((cb) => {
-            try { cb(articles); } catch (e) { console.error(e); }
+            try { cb(articles); } catch (e) { console.error('Article subscriber error:', e); }
           });
 
           // Dispatch global live event
@@ -108,14 +148,14 @@ export class FirestoreSyncService {
             localStorage.setItem('tds_settings_v1', JSON.stringify(data));
             
             this.settingsSubscribers.forEach((cb) => {
-              try { cb(data); } catch (e) { console.error(e); }
+              try { cb(data); } catch (e) { console.error('Settings subscriber error:', e); }
             });
 
             onDataUpdated('firestore_settings');
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot settings subscription notice:', error.message);
+          console.warn('Firestore onSnapshot settings notice:', error.message);
         }
       );
       this.unsubscribers.push(unsubSettings);
@@ -127,19 +167,22 @@ export class FirestoreSyncService {
         (snapshot) => {
           if (!snapshot.empty) {
             const categories: Category[] = [];
-            snapshot.forEach((d) => categories.push(d.data() as Category));
+            snapshot.forEach((d) => {
+              const data = d.data() as Category;
+              if (data && data.id) categories.push(data);
+            });
             categories.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
             localStorage.setItem('tds_categories_v1', JSON.stringify(categories));
             
             this.categorySubscribers.forEach((cb) => {
-              try { cb(categories); } catch (e) { console.error(e); }
+              try { cb(categories); } catch (e) { console.error('Category subscriber error:', e); }
             });
 
             onDataUpdated('firestore_categories');
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot categories subscription notice:', error.message);
+          console.warn('Firestore onSnapshot categories notice:', error.message);
         }
       );
       this.unsubscribers.push(unsubCategories);
@@ -151,8 +194,16 @@ export class FirestoreSyncService {
         (snapshot) => {
           if (!snapshot.empty) {
             const ads: Advertisement[] = [];
-            snapshot.forEach((d) => ads.push(d.data() as Advertisement));
+            snapshot.forEach((d) => {
+              const data = d.data() as Advertisement;
+              if (data && data.id) ads.push(data);
+            });
             localStorage.setItem('tds_advertisements_v1', JSON.stringify(ads));
+            
+            this.advertisementSubscribers.forEach((cb) => {
+              try { cb(ads); } catch (e) { console.error('Ads subscriber error:', e); }
+            });
+
             onDataUpdated('firestore_advertisements');
           }
         },
@@ -161,6 +212,84 @@ export class FirestoreSyncService {
         }
       );
       this.unsubscribers.push(unsubAds);
+
+      // 5. Listen to Reporters in Real-time (onSnapshot)
+      const repCol = collection(db, 'reporters');
+      const unsubRep = onSnapshot(
+        repCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const reps: Reporter[] = [];
+            snapshot.forEach((d) => {
+              const data = d.data() as Reporter;
+              if (data && data.id) reps.push(data);
+            });
+            localStorage.setItem('tds_reporters_v1', JSON.stringify(reps));
+            
+            this.reporterSubscribers.forEach((cb) => {
+              try { cb(reps); } catch (e) { console.error('Reporter subscriber error:', e); }
+            });
+
+            onDataUpdated('firestore_reporters');
+          }
+        },
+        (error) => {
+          console.warn('Firestore onSnapshot reporters notice:', error.message);
+        }
+      );
+      this.unsubscribers.push(unsubRep);
+
+      // 6. Listen to Member Applications in Real-time (onSnapshot)
+      const appCol = collection(db, 'member_applications');
+      const unsubApps = onSnapshot(
+        appCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const apps: MemberApplication[] = [];
+            snapshot.forEach((d) => {
+              const data = d.data() as MemberApplication;
+              if (data && data.id) apps.push(data);
+            });
+            localStorage.setItem('tds_applications_v1', JSON.stringify(apps));
+            
+            this.applicationSubscribers.forEach((cb) => {
+              try { cb(apps); } catch (e) { console.error('Application subscriber error:', e); }
+            });
+
+            onDataUpdated('firestore_applications');
+          }
+        },
+        (error) => {
+          console.warn('Firestore onSnapshot applications notice:', error.message);
+        }
+      );
+      this.unsubscribers.push(unsubApps);
+
+      // 7. Listen to Joining Letters in Real-time (onSnapshot)
+      const lettersCol = collection(db, 'joining_letters');
+      const unsubLetters = onSnapshot(
+        lettersCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const letters: JoiningLetter[] = [];
+            snapshot.forEach((d) => {
+              const data = d.data() as JoiningLetter;
+              if (data && data.id) letters.push(data);
+            });
+            localStorage.setItem('tds_joining_letters_v1', JSON.stringify(letters));
+            
+            this.letterSubscribers.forEach((cb) => {
+              try { cb(letters); } catch (e) { console.error('Letters subscriber error:', e); }
+            });
+
+            onDataUpdated('firestore_joining_letters');
+          }
+        },
+        (error) => {
+          console.warn('Firestore onSnapshot joining letters notice:', error.message);
+        }
+      );
+      this.unsubscribers.push(unsubLetters);
 
     } catch (err) {
       console.warn('Firestore real-time sync failed to initialize:', err);
@@ -189,6 +318,34 @@ export class FirestoreSyncService {
     };
   }
 
+  static subscribeToAdvertisements(callback: (ads: Advertisement[]) => void): () => void {
+    this.advertisementSubscribers.add(callback);
+    return () => {
+      this.advertisementSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToReporters(callback: (reporters: Reporter[]) => void): () => void {
+    this.reporterSubscribers.add(callback);
+    return () => {
+      this.reporterSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToApplications(callback: (apps: MemberApplication[]) => void): () => void {
+    this.applicationSubscribers.add(callback);
+    return () => {
+      this.applicationSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToJoiningLetters(callback: (letters: JoiningLetter[]) => void): () => void {
+    this.letterSubscribers.add(callback);
+    return () => {
+      this.letterSubscribers.delete(callback);
+    };
+  }
+
   // --- SEED INITIAL CLOUD DATA ---
   static async seedInitialCloudData(): Promise<void> {
     try {
@@ -197,35 +354,53 @@ export class FirestoreSyncService {
       // Seed News
       for (const article of INITIAL_NEWS) {
         const articleRef = doc(db, 'news', article.id);
-        batch.set(articleRef, article, { merge: true });
+        batch.set(articleRef, cleanForFirestore(article), { merge: true });
       }
 
       // Seed Settings
       const settingsRef = doc(db, 'settings', 'main');
-      batch.set(settingsRef, INITIAL_SETTINGS, { merge: true });
+      batch.set(settingsRef, cleanForFirestore(INITIAL_SETTINGS), { merge: true });
 
       // Seed Categories
       for (const cat of INITIAL_CATEGORIES) {
         const catRef = doc(db, 'categories', cat.id);
-        batch.set(catRef, cat, { merge: true });
+        batch.set(catRef, cleanForFirestore(cat), { merge: true });
       }
 
       // Seed States
       for (const st of INITIAL_STATES) {
         const stRef = doc(db, 'states', st.id);
-        batch.set(stRef, st, { merge: true });
+        batch.set(stRef, cleanForFirestore(st), { merge: true });
       }
 
       // Seed Districts
       for (const dt of INITIAL_DISTRICTS) {
         const dtRef = doc(db, 'districts', dt.id);
-        batch.set(dtRef, dt, { merge: true });
+        batch.set(dtRef, cleanForFirestore(dt), { merge: true });
       }
 
       // Seed Advertisements
       for (const ad of INITIAL_ADVERTISEMENTS) {
         const adRef = doc(db, 'advertisements', ad.id);
-        batch.set(adRef, ad, { merge: true });
+        batch.set(adRef, cleanForFirestore(ad), { merge: true });
+      }
+
+      // Seed Reporters
+      for (const rep of INITIAL_REPORTERS) {
+        const repRef = doc(db, 'reporters', rep.id);
+        batch.set(repRef, cleanForFirestore(rep), { merge: true });
+      }
+
+      // Seed Applications
+      for (const app of INITIAL_APPLICATIONS) {
+        const appRef = doc(db, 'member_applications', app.id);
+        batch.set(appRef, cleanForFirestore(app), { merge: true });
+      }
+
+      // Seed Joining Letters
+      for (const jl of INITIAL_JOINING_LETTERS) {
+        const jlRef = doc(db, 'joining_letters', jl.id);
+        batch.set(jlRef, cleanForFirestore(jl), { merge: true });
       }
 
       await batch.commit();
@@ -239,9 +414,11 @@ export class FirestoreSyncService {
   static async saveArticle(article: NewsArticle): Promise<void> {
     try {
       const docRef = doc(db, 'news', article.id);
-      await setDoc(docRef, article, { merge: true });
+      const cleaned = cleanForFirestore(article);
+      await setDoc(docRef, cleaned, { merge: true });
+      console.log(`[Firestore] Article saved successfully: ${article.id}`);
     } catch (err) {
-      console.warn('Firestore saveArticle error:', err);
+      console.error('[Firestore] Error saving article to Cloud Firestore:', err);
     }
   }
 
@@ -249,8 +426,9 @@ export class FirestoreSyncService {
     try {
       const docRef = doc(db, 'news', id);
       await deleteDoc(docRef);
+      console.log(`[Firestore] Article deleted from Cloud Firestore: ${id}`);
     } catch (err) {
-      console.warn('Firestore deleteArticle error:', err);
+      console.error('[Firestore] Error deleting article from Cloud Firestore:', err);
     }
   }
 
@@ -258,9 +436,10 @@ export class FirestoreSyncService {
   static async saveSettings(settings: WebsiteSettings): Promise<void> {
     try {
       const docRef = doc(db, 'settings', 'main');
-      await setDoc(docRef, settings, { merge: true });
+      const cleaned = cleanForFirestore(settings);
+      await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.warn('Firestore saveSettings error:', err);
+      console.error('[Firestore] Error saving settings:', err);
     }
   }
 
@@ -268,9 +447,10 @@ export class FirestoreSyncService {
   static async saveCategory(category: Category): Promise<void> {
     try {
       const docRef = doc(db, 'categories', category.id);
-      await setDoc(docRef, category, { merge: true });
+      const cleaned = cleanForFirestore(category);
+      await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.warn('Firestore saveCategory error:', err);
+      console.error('[Firestore] Error saving category:', err);
     }
   }
 
@@ -279,7 +459,37 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'categories', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.warn('Firestore deleteCategory error:', err);
+      console.error('[Firestore] Error deleting category:', err);
+    }
+  }
+
+  // --- STATES & DISTRICTS ---
+  static async saveState(state: State): Promise<void> {
+    try {
+      const docRef = doc(db, 'states', state.id);
+      const cleaned = cleanForFirestore(state);
+      await setDoc(docRef, cleaned, { merge: true });
+    } catch (err) {
+      console.error('[Firestore] Error saving state:', err);
+    }
+  }
+
+  static async saveDistrict(district: District): Promise<void> {
+    try {
+      const docRef = doc(db, 'districts', district.id);
+      const cleaned = cleanForFirestore(district);
+      await setDoc(docRef, cleaned, { merge: true });
+    } catch (err) {
+      console.error('[Firestore] Error saving district:', err);
+    }
+  }
+
+  static async deleteDistrict(id: string): Promise<void> {
+    try {
+      const docRef = doc(db, 'districts', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error('[Firestore] Error deleting district:', err);
     }
   }
 
@@ -287,18 +497,58 @@ export class FirestoreSyncService {
   static async saveApplication(app: MemberApplication): Promise<void> {
     try {
       const docRef = doc(db, 'member_applications', app.id);
-      await setDoc(docRef, app, { merge: true });
+      const cleaned = cleanForFirestore(app);
+      await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.warn('Firestore saveApplication error:', err);
+      console.error('[Firestore] Error saving application:', err);
+    }
+  }
+
+  static async deleteApplication(id: string): Promise<void> {
+    try {
+      const docRef = doc(db, 'member_applications', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error('[Firestore] Error deleting application:', err);
     }
   }
 
   static async saveReporter(reporter: Reporter): Promise<void> {
     try {
       const docRef = doc(db, 'reporters', reporter.id);
-      await setDoc(docRef, reporter, { merge: true });
+      const cleaned = cleanForFirestore(reporter);
+      await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.warn('Firestore saveReporter error:', err);
+      console.error('[Firestore] Error saving reporter:', err);
+    }
+  }
+
+  static async deleteReporter(id: string): Promise<void> {
+    try {
+      const docRef = doc(db, 'reporters', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error('[Firestore] Error deleting reporter:', err);
+    }
+  }
+
+  // --- JOINING LETTERS ---
+  static async saveJoiningLetter(letter: JoiningLetter): Promise<void> {
+    try {
+      const docRef = doc(db, 'joining_letters', letter.id);
+      const cleaned = cleanForFirestore(letter);
+      await setDoc(docRef, cleaned, { merge: true });
+    } catch (err) {
+      console.error('[Firestore] Error saving joining letter:', err);
+    }
+  }
+
+  static async deleteJoiningLetter(id: string): Promise<void> {
+    try {
+      const docRef = doc(db, 'joining_letters', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error('[Firestore] Error deleting joining letter:', err);
     }
   }
 
@@ -306,9 +556,10 @@ export class FirestoreSyncService {
   static async saveAdvertisement(ad: Advertisement): Promise<void> {
     try {
       const docRef = doc(db, 'advertisements', ad.id);
-      await setDoc(docRef, ad, { merge: true });
+      const cleaned = cleanForFirestore(ad);
+      await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.warn('Firestore saveAdvertisement error:', err);
+      console.error('[Firestore] Error saving advertisement:', err);
     }
   }
 
@@ -317,7 +568,7 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'advertisements', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.warn('Firestore deleteAdvertisement error:', err);
+      console.error('[Firestore] Error deleting advertisement:', err);
     }
   }
 

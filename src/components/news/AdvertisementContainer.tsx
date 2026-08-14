@@ -18,7 +18,28 @@ export const AdvertisementContainer: React.FC<AdvertisementContainerProps> = ({
   className = '',
   children,
 }) => {
-  const ads = NewsService.getAdvertisements().filter(a => a.isActive && a.type === type);
+  const [ads, setAds] = React.useState(() => 
+    NewsService.getAdvertisements().filter(a => a.isActive && a.type === type)
+  );
+
+  React.useEffect(() => {
+    const loadAds = () => {
+      setAds(NewsService.getAdvertisements().filter(a => a.isActive && a.type === type));
+    };
+
+    window.addEventListener('tds_data_updated', loadAds);
+    const unsubscribe = NewsService.subscribeToAdvertisements((realtimeAds) => {
+      if (realtimeAds) {
+        setAds(realtimeAds.filter(a => a.isActive && a.type === type));
+      }
+    });
+
+    return () => {
+      window.removeEventListener('tds_data_updated', loadAds);
+      unsubscribe();
+    };
+  }, [type]);
+
   const ad = ads[0];
 
   return (
