@@ -13,8 +13,13 @@ export const LocationManagerView: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<District | null>(null);
 
   useEffect(() => {
-    setStates(NewsService.getStates());
-    setDistricts(NewsService.getDistricts(selectedStateId));
+    const refresh = () => {
+      setStates(NewsService.getStates());
+      setDistricts(NewsService.getDistricts(selectedStateId));
+    };
+    refresh();
+    window.addEventListener('tds_data_updated', refresh);
+    return () => window.removeEventListener('tds_data_updated', refresh);
   }, [selectedStateId]);
 
   const handleAddDistrict = (e: React.FormEvent) => {

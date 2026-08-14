@@ -11,7 +11,17 @@ export const CategoryManagerView: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
 
   useEffect(() => {
-    setCategories(NewsService.getCategories());
+    const refresh = () => setCategories(NewsService.getCategories());
+    refresh();
+    window.addEventListener('tds_data_updated', refresh);
+    const unsub = NewsService.subscribeToCategories((cats) => {
+      if (cats) setCategories(cats);
+    });
+
+    return () => {
+      window.removeEventListener('tds_data_updated', refresh);
+      unsub();
+    };
   }, []);
 
   const handleAdd = (e: React.FormEvent) => {

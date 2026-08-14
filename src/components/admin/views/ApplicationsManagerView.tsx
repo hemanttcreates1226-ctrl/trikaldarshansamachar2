@@ -18,6 +18,15 @@ export const ApplicationsManagerView: React.FC = () => {
 
   useEffect(() => {
     loadAll();
+    window.addEventListener('tds_data_updated', loadAll);
+    const unsub = NewsService.subscribeToApplications((allApps) => {
+      if (allApps) setApps(allApps);
+    });
+
+    return () => {
+      window.removeEventListener('tds_data_updated', loadAll);
+      unsub();
+    };
   }, []);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {

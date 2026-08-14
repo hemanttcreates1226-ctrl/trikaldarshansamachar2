@@ -28,7 +28,17 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
       setSocialLinks(NewsService.getSocialLinks());
     };
     window.addEventListener('tds_data_updated', updateData);
-    return () => window.removeEventListener('tds_data_updated', updateData);
+    const unsub = NewsService.subscribeToSettings((newSettings) => {
+      if (newSettings) {
+        setSettings(newSettings);
+        setSocialLinks(NewsService.getSocialLinks());
+      }
+    });
+
+    return () => {
+      window.removeEventListener('tds_data_updated', updateData);
+      unsub();
+    };
   }, []);
 
   return (

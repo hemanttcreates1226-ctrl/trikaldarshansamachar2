@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Megaphone, ExternalLink } from 'lucide-react';
-import { AdType } from '../../types/news';
+import { AdType, Advertisement } from '../../types/news';
 import { NewsService } from '../../services/newsService';
 
 export interface AdvertisementContainerProps {
@@ -18,25 +18,26 @@ export const AdvertisementContainer: React.FC<AdvertisementContainerProps> = ({
   className = '',
   children,
 }) => {
-  const [ads, setAds] = React.useState(() => 
+  const [ads, setAds] = useState<Advertisement[]>(() => 
     NewsService.getAdvertisements().filter(a => a.isActive && a.type === type)
   );
 
-  React.useEffect(() => {
-    const loadAds = () => {
+  useEffect(() => {
+    const refresh = () => {
       setAds(NewsService.getAdvertisements().filter(a => a.isActive && a.type === type));
     };
 
-    window.addEventListener('tds_data_updated', loadAds);
-    const unsubscribe = NewsService.subscribeToAdvertisements((realtimeAds) => {
-      if (realtimeAds) {
-        setAds(realtimeAds.filter(a => a.isActive && a.type === type));
+    refresh();
+    window.addEventListener('tds_data_updated', refresh);
+    const unsub = NewsService.subscribeToAdvertisements((allAds) => {
+      if (allAds) {
+        setAds(allAds.filter(a => a.isActive && a.type === type));
       }
     });
 
     return () => {
-      window.removeEventListener('tds_data_updated', loadAds);
-      unsubscribe();
+      window.removeEventListener('tds_data_updated', refresh);
+      unsub();
     };
   }, [type]);
 

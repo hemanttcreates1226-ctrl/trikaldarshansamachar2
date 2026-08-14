@@ -56,6 +56,12 @@ export const JoiningLettersManagerView: React.FC = () => {
 
   useEffect(() => {
     loadAll();
+    window.addEventListener('tds_data_updated', loadAll);
+    const unsub = NewsService.subscribeToJoiningLetters(() => loadAll());
+    return () => {
+      window.removeEventListener('tds_data_updated', loadAll);
+      unsub();
+    };
   }, []);
 
   const handleOpenCreateModal = () => {

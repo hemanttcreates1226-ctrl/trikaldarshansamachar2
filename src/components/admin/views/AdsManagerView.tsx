@@ -12,7 +12,17 @@ export const AdsManagerView: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<Advertisement | null>(null);
 
   useEffect(() => {
-    setAds(NewsService.getAdvertisements());
+    const refresh = () => setAds(NewsService.getAdvertisements());
+    refresh();
+    window.addEventListener('tds_data_updated', refresh);
+    const unsub = NewsService.subscribeToAdvertisements((allAds) => {
+      if (allAds) setAds(allAds);
+    });
+
+    return () => {
+      window.removeEventListener('tds_data_updated', refresh);
+      unsub();
+    };
   }, []);
 
   const handleAdd = (e: React.FormEvent) => {

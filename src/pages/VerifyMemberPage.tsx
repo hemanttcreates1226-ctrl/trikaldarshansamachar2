@@ -13,9 +13,42 @@ export const VerifyMemberPage: React.FC<VerifyMemberPageProps> = ({ pressId, onN
   const [idCard, setIdCard] = useState<IDCard | null>(null);
 
   useEffect(() => {
-    const cards = NewsService.getIDCards();
-    const found = cards.find(c => c.pressId.toLowerCase() === pressId.toLowerCase());
-    setIdCard(found || null);
+    const fetchCard = () => {
+      const cards = NewsService.getIDCards();
+      const found = cards.find(c => c.pressId.toLowerCase() === pressId.toLowerCase());
+      if (found) {
+        setIdCard(found);
+      } else {
+        // Also check approved applications
+        const apps = NewsService.getApplications();
+        const foundApp = apps.find(a => a.pressId && a.pressId.toLowerCase() === pressId.toLowerCase());
+        if (foundApp) {
+          setIdCard({
+            id: foundApp.id,
+            applicationId: foundApp.id,
+            pressId: foundApp.pressId || '',
+            memberId: foundApp.memberId || '',
+            name: foundApp.fullName,
+            designation: foundApp.position || 'संवाददाता',
+            districtName: foundApp.districtName,
+            stateName: foundApp.stateName,
+            issueDate: foundApp.submittedAt || '01-01-2025',
+            expiryDate: '31-12-2026',
+            mobile: foundApp.mobile,
+            photo: foundApp.photoUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80',
+            qrCodeUrl: window.location.href,
+            verificationUrl: window.location.href,
+            status: 'active'
+          });
+        } else {
+          setIdCard(null);
+        }
+      }
+    };
+
+    fetchCard();
+    window.addEventListener('tds_data_updated', fetchCard);
+    return () => window.removeEventListener('tds_data_updated', fetchCard);
   }, [pressId]);
 
   return (

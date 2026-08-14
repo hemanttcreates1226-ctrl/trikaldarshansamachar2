@@ -12,7 +12,17 @@ export const ReporterManagerView: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<Reporter | null>(null);
 
   useEffect(() => {
-    setReporters(NewsService.getReporters());
+    const refresh = () => setReporters(NewsService.getReporters());
+    refresh();
+    window.addEventListener('tds_data_updated', refresh);
+    const unsub = NewsService.subscribeToReporters((reps) => {
+      if (reps) setReporters(reps);
+    });
+
+    return () => {
+      window.removeEventListener('tds_data_updated', refresh);
+      unsub();
+    };
   }, []);
 
   const handleAdd = (e: React.FormEvent) => {

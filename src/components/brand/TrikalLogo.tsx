@@ -40,21 +40,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
     loadBrandSettings();
     const handleUpdate = () => loadBrandSettings();
     window.addEventListener('tds_data_updated', handleUpdate);
-    const unsubscribe = NewsService.subscribeToSettings((newSettings) => {
-      if (newSettings) {
-        setBrandSettings({
-          logoImageUrl: (newSettings.logoImageUrl && newSettings.logoImageUrl !== '/logo.png') ? newSettings.logoImageUrl : DEFAULT_LOGO_BASE64,
-          brandTitle: newSettings.brandTitle || newSettings.siteName || 'त्रिकाल दर्शन',
-          brandBadgeText: newSettings.brandBadgeText || 'समाचार',
-          taglineHindi: newSettings.taglineHindi || newSettings.tagline || 'सत्य की त्रिकाल दृष्टि'
-        });
-      }
-    });
-
-    return () => {
-      window.removeEventListener('tds_data_updated', handleUpdate);
-      unsubscribe();
-    };
+    return () => window.removeEventListener('tds_data_updated', handleUpdate);
   }, []);
 
   const imageSizeClasses = {
