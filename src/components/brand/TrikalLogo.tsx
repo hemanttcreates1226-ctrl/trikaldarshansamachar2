@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import defaultLogoImg from '../../assets/9.png';
 import { NewsService } from '../../services/newsService';
 
 interface LogoProps {
@@ -16,7 +15,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
   className = ''
 }) => {
   const [brandSettings, setBrandSettings] = useState({
-    logoImageUrl: defaultLogoImg,
+    logoImageUrl: '/logo.png',
     brandTitle: 'त्रिकाल दर्शन',
     brandBadgeText: 'समाचार',
     taglineHindi: 'सत्य की त्रिकाल दृष्टि'
@@ -26,7 +25,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
     try {
       const s = NewsService.getSettings();
       setBrandSettings({
-        logoImageUrl: defaultLogoImg,
+        logoImageUrl: s.logoImageUrl || '/logo.png',
         brandTitle: s.brandTitle || s.siteName || 'त्रिकाल दर्शन',
         brandBadgeText: s.brandBadgeText || 'समाचार',
         taglineHindi: s.taglineHindi || s.tagline || 'सत्य की त्रिकाल दृष्टि'
@@ -76,7 +75,7 @@ export const TrikalLogo: React.FC<LogoProps> = ({
       {/* Visual Logo Emblem: Locked official high resolution logo image */}
       <div className="relative flex-shrink-0 flex items-center justify-center">
         <img
-          src={defaultLogoImg}
+          src={brandSettings.logoImageUrl || '/logo.png'}
           alt={brandSettings.brandTitle}
           referrerPolicy="no-referrer"
           className={`${imageSizeClasses} object-contain rounded-full`}

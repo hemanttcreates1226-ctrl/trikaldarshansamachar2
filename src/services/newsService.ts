@@ -41,7 +41,8 @@ const STORAGE_KEYS = {
   ADVERTISEMENTS: 'tds_advertisements_v1',
   SOCIAL_LINKS: 'tds_social_links_v1',
   SETTINGS: 'tds_settings_v1',
-  PANCHANG: 'tds_panchang_v1'
+  PANCHANG: 'tds_panchang_v1',
+  LAST_SYNC: 'tds_last_sync_timestamp'
 };
 
 function getItem<T>(key: string, defaultValue: T): T {
@@ -54,16 +55,120 @@ function getItem<T>(key: string, defaultValue: T): T {
   }
 }
 
-function setItem<T>(key: string, value: T): void {
+function setItem<T>(key: string, value: T, notify = true): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-    window.dispatchEvent(new Event('tds_data_updated'));
+    if (notify && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('tds_data_updated'));
+    }
   } catch (err) {
     console.error(`Error saving ${key} to localStorage`, err);
   }
 }
 
+async function apiCall(endpoint: string, method: string = 'GET', body?: any): Promise<any> {
+  try {
+    const options: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+    const res = await fetch(endpoint, options);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    // Graceful offline fallback
+    return null;
+  }
+}
+
 export class NewsService {
+  private static isInitialized = false;
+  private static syncInterval: any = null;
+
+  static init(): void {
+    if (this.isInitialized || typeof window === 'undefined') return;
+    this.isInitialized = true;
+
+    // Initial fetch from server
+    this.syncFromServer();
+
+    // Background periodic poll every 15 seconds for live news updates
+    this.syncInterval = setInterval(() => {
+      this.syncFromServer();
+    }, 15000);
+
+    // Refresh when user returns to tab
+    window.addEventListener('focus', () => {
+      this.syncFromServer();
+    });
+
+    window.addEventListener('online', () => {
+      this.syncFromServer();
+    });
+  }
+
+  static async syncFromServer(): Promise<boolean> {
+    try {
+      const res = await apiCall('/api/data');
+      if (!res || !res.success || !res.data) return false;
+
+      const serverData = res.data;
+      const lastLocalSync = Number(localStorage.getItem(STORAGE_KEYS.LAST_SYNC) || '0');
+
+      if (serverData.lastUpdated && serverData.lastUpdated > lastLocalSync) {
+        if (Array.isArray(serverData.news)) setItem(STORAGE_KEYS.NEWS, serverData.news, false);
+        if (Array.isArray(serverData.categories)) setItem(STORAGE_KEYS.CATEGORIES, serverData.categories, false);
+        if (Array.isArray(serverData.states)) setItem(STORAGE_KEYS.STATES, serverData.states, false);
+        if (Array.isArray(serverData.districts)) setItem(STORAGE_KEYS.DISTRICTS, serverData.districts, false);
+        if (Array.isArray(serverData.reporters)) setItem(STORAGE_KEYS.REPORTERS, serverData.reporters, false);
+        if (Array.isArray(serverData.applications)) setItem(STORAGE_KEYS.APPLICATIONS, serverData.applications, false);
+        if (Array.isArray(serverData.idCards)) setItem(STORAGE_KEYS.ID_CARDS, serverData.idCards, false);
+        if (Array.isArray(serverData.joiningLetters)) setItem(STORAGE_KEYS.JOINING_LETTERS, serverData.joiningLetters, false);
+        if (Array.isArray(serverData.advertisements)) setItem(STORAGE_KEYS.ADVERTISEMENTS, serverData.advertisements, false);
+        if (Array.isArray(serverData.socialLinks)) setItem(STORAGE_KEYS.SOCIAL_LINKS, serverData.socialLinks, false);
+        if (serverData.settings) setItem(STORAGE_KEYS.SETTINGS, serverData.settings, false);
+        if (serverData.panchang) setItem(STORAGE_KEYS.PANCHANG, serverData.panchang, false);
+
+        localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(serverData.lastUpdated));
+        window.dispatchEvent(new Event('tds_data_updated'));
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  static async pushSnapshotToServer(): Promise<void> {
+    try {
+      const payload = {
+        news: getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS),
+        categories: getItem(STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES),
+        states: getItem(STORAGE_KEYS.STATES, INITIAL_STATES),
+        districts: getItem(STORAGE_KEYS.DISTRICTS, INITIAL_DISTRICTS),
+        reporters: getItem(STORAGE_KEYS.REPORTERS, INITIAL_REPORTERS),
+        applications: getItem(STORAGE_KEYS.APPLICATIONS, INITIAL_APPLICATIONS),
+        idCards: getItem(STORAGE_KEYS.ID_CARDS, INITIAL_ID_CARDS),
+        joiningLetters: getItem(STORAGE_KEYS.JOINING_LETTERS, INITIAL_JOINING_LETTERS),
+        advertisements: getItem(STORAGE_KEYS.ADVERTISEMENTS, INITIAL_ADVERTISEMENTS),
+        socialLinks: getItem(STORAGE_KEYS.SOCIAL_LINKS, INITIAL_SOCIAL_LINKS),
+        settings: getItem(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS),
+        panchang: getItem(STORAGE_KEYS.PANCHANG, INITIAL_PANCHANG)
+      };
+      const res = await apiCall('/api/data/sync', 'POST', payload);
+      if (res?.lastUpdated) {
+        localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(res.lastUpdated));
+      }
+    } catch {
+      // Ignore network failures
+    }
+  }
+
   // --- NEWS ARTICLES ---
   static getArticles(filters?: {
     categorySlug?: string;
@@ -135,7 +240,7 @@ export class NewsService {
     const found = articles.find(a => a.id === idOrSlug || a.slug === idOrSlug);
     if (found) {
       found.views = (found.views || 0) + 1;
-      setItem(STORAGE_KEYS.NEWS, articles);
+      setItem(STORAGE_KEYS.NEWS, articles, false);
       return found;
     }
     return null;
@@ -146,7 +251,7 @@ export class NewsService {
     const found = articles.find(a => a.id === id || a.slug === id);
     if (found) {
       found.views = (found.views || 0) + 1;
-      setItem(STORAGE_KEYS.NEWS, articles);
+      setItem(STORAGE_KEYS.NEWS, articles, false);
     }
   }
 
@@ -154,60 +259,90 @@ export class NewsService {
     const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
     const now = new Date().toISOString();
 
+    let targetArticle: NewsArticle;
+
     if (articleData.id) {
       const index = articles.findIndex(a => a.id === articleData.id);
       if (index !== -1) {
-        const updated = {
+        targetArticle = {
           ...articles[index],
           ...articleData,
           updatedDate: now
         } as NewsArticle;
-        articles[index] = updated;
-        setItem(STORAGE_KEYS.NEWS, articles);
-        return updated;
+        articles[index] = targetArticle;
+      } else {
+        targetArticle = {
+          id: articleData.id,
+          title: articleData.title || 'शीर्षक रहित समाचार',
+          subtitle: articleData.subtitle || '',
+          content: articleData.content || '',
+          summary: articleData.summary || articleData.content?.slice(0, 150) || '',
+          featuredImage: articleData.featuredImage || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&q=80',
+          categorySlug: articleData.categorySlug || 'latest-news',
+          categoryName: articleData.categoryName || 'ताज़ा खबर',
+          stateId: articleData.stateId,
+          stateName: articleData.stateName,
+          districtId: articleData.districtId,
+          districtName: articleData.districtName,
+          cityName: articleData.cityName,
+          reporterId: articleData.reporterId,
+          reporterName: articleData.reporterName,
+          authorName: articleData.authorName || 'त्रिकाल सम्पादकीय',
+          tags: articleData.tags || ['समाचार', 'त्रिकाल दर्शन'],
+          views: 1,
+          isBreaking: !!articleData.isBreaking,
+          isFeatured: !!articleData.isFeatured,
+          isSpecialReport: !!articleData.isSpecialReport,
+          publishDate: articleData.publishDate || now,
+          status: articleData.status || 'published',
+          slug: articleData.slug || `news-${Date.now()}`
+        };
+        articles.unshift(targetArticle);
       }
+    } else {
+      const slug = articleData.title
+        ? articleData.title.toLowerCase().replace(/[^a-z0-9\u0900-\u097F]+/g, '-').replace(/^-+|-+$/g, '')
+        : `news-${Date.now()}`;
+
+      targetArticle = {
+        id: `news-${Date.now()}`,
+        title: articleData.title || 'शीर्षक रहित समाचार',
+        subtitle: articleData.subtitle || '',
+        content: articleData.content || '',
+        summary: articleData.summary || articleData.content?.slice(0, 150) || '',
+        featuredImage: articleData.featuredImage || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&q=80',
+        categorySlug: articleData.categorySlug || 'latest-news',
+        categoryName: articleData.categoryName || 'ताज़ा खबर',
+        stateId: articleData.stateId,
+        stateName: articleData.stateName,
+        districtId: articleData.districtId,
+        districtName: articleData.districtName,
+        cityName: articleData.cityName,
+        reporterId: articleData.reporterId,
+        reporterName: articleData.reporterName,
+        authorName: articleData.authorName || 'त्रिकाल सम्पादकीय',
+        tags: articleData.tags || ['समाचार', 'त्रिकाल दर्शन'],
+        views: 1,
+        isBreaking: !!articleData.isBreaking,
+        isFeatured: !!articleData.isFeatured,
+        isSpecialReport: !!articleData.isSpecialReport,
+        publishDate: articleData.publishDate || now,
+        status: articleData.status || 'published',
+        slug: slug || `news-${Date.now()}`
+      };
+      articles.unshift(targetArticle);
     }
 
-    const slug = articleData.title
-      ? articleData.title.toLowerCase().replace(/[^a-z0-9\u0900-\u097F]+/g, '-').replace(/^-+|-+$/g, '')
-      : `news-${Date.now()}`;
-
-    const newArticle: NewsArticle = {
-      id: `news-${Date.now()}`,
-      title: articleData.title || 'शीर्षक रहित समाचार',
-      subtitle: articleData.subtitle || '',
-      content: articleData.content || '',
-      summary: articleData.summary || articleData.content?.slice(0, 150) || '',
-      featuredImage: articleData.featuredImage || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&q=80',
-      categorySlug: articleData.categorySlug || 'latest-news',
-      categoryName: articleData.categoryName || 'ताज़ा खबर',
-      stateId: articleData.stateId,
-      stateName: articleData.stateName,
-      districtId: articleData.districtId,
-      districtName: articleData.districtName,
-      cityName: articleData.cityName,
-      reporterId: articleData.reporterId,
-      reporterName: articleData.reporterName,
-      authorName: articleData.authorName || 'त्रिकाल सम्पादकीय',
-      tags: articleData.tags || ['समाचार', 'त्रिकाल दर्शन'],
-      views: 1,
-      isBreaking: !!articleData.isBreaking,
-      isFeatured: !!articleData.isFeatured,
-      isSpecialReport: !!articleData.isSpecialReport,
-      publishDate: articleData.publishDate || now,
-      status: articleData.status || 'published',
-      slug: slug || `news-${Date.now()}`
-    };
-
-    articles.unshift(newArticle);
     setItem(STORAGE_KEYS.NEWS, articles);
-    return newArticle;
+    apiCall('/api/articles', 'POST', targetArticle);
+    return targetArticle;
   }
 
   static deleteArticle(id: string): void {
     const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
     const filtered = articles.filter(a => a.id !== id);
     setItem(STORAGE_KEYS.NEWS, filtered);
+    apiCall(`/api/articles/${id}`, 'DELETE');
   }
 
   // --- CATEGORIES ---
@@ -222,30 +357,45 @@ export class NewsService {
 
   static saveCategory(category: Partial<Category>): Category {
     const categories: Category[] = getItem(STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
+    let targetCat: Category;
+
     if (category.id) {
       const idx = categories.findIndex(c => c.id === category.id);
       if (idx !== -1) {
-        categories[idx] = { ...categories[idx], ...category };
-        setItem(STORAGE_KEYS.CATEGORIES, categories);
-        return categories[idx];
+        targetCat = { ...categories[idx], ...category };
+        categories[idx] = targetCat;
+      } else {
+        targetCat = {
+          id: category.id,
+          nameHindi: category.nameHindi || 'नई श्रेणी',
+          nameEnglish: category.nameEnglish || 'New Category',
+          slug: category.slug || `cat-${Date.now()}`,
+          sortOrder: category.sortOrder || categories.length + 1,
+          isHidden: false
+        };
+        categories.push(targetCat);
       }
+    } else {
+      targetCat = {
+        id: `cat-${Date.now()}`,
+        nameHindi: category.nameHindi || 'नई श्रेणी',
+        nameEnglish: category.nameEnglish || 'New Category',
+        slug: category.slug || `cat-${Date.now()}`,
+        sortOrder: category.sortOrder || categories.length + 1,
+        isHidden: false
+      };
+      categories.push(targetCat);
     }
-    const newCat: Category = {
-      id: `cat-${Date.now()}`,
-      nameHindi: category.nameHindi || 'नई श्रेणी',
-      nameEnglish: category.nameEnglish || 'New Category',
-      slug: category.slug || `cat-${Date.now()}`,
-      sortOrder: category.sortOrder || categories.length + 1,
-      isHidden: false
-    };
-    categories.push(newCat);
+
     setItem(STORAGE_KEYS.CATEGORIES, categories);
-    return newCat;
+    apiCall('/api/categories', 'POST', targetCat);
+    return targetCat;
   }
 
   static deleteCategory(id: string): void {
     const categories: Category[] = getItem(STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
     setItem(STORAGE_KEYS.CATEGORIES, categories.filter(c => c.id !== id));
+    apiCall(`/api/categories/${id}`, 'DELETE');
   }
 
   // --- LOCATIONS ---
@@ -267,30 +417,45 @@ export class NewsService {
 
   static saveDistrict(district: Partial<District>): District {
     const districts: District[] = getItem(STORAGE_KEYS.DISTRICTS, INITIAL_DISTRICTS);
+    let targetDt: District;
+
     if (district.id) {
       const idx = districts.findIndex(d => d.id === district.id);
       if (idx !== -1) {
-        districts[idx] = { ...districts[idx], ...district };
-        setItem(STORAGE_KEYS.DISTRICTS, districts);
-        return districts[idx];
+        targetDt = { ...districts[idx], ...district };
+        districts[idx] = targetDt;
+      } else {
+        targetDt = {
+          id: district.id,
+          stateId: district.stateId || 'st-mp',
+          nameHindi: district.nameHindi || 'नया जिला',
+          nameEnglish: district.nameEnglish || 'New District',
+          slug: district.slug || `district-${Date.now()}`,
+          isEnabled: true
+        };
+        districts.push(targetDt);
       }
+    } else {
+      targetDt = {
+        id: `dt-${Date.now()}`,
+        stateId: district.stateId || 'st-mp',
+        nameHindi: district.nameHindi || 'नया जिला',
+        nameEnglish: district.nameEnglish || 'New District',
+        slug: district.slug || `district-${Date.now()}`,
+        isEnabled: true
+      };
+      districts.push(targetDt);
     }
-    const newDistrict: District = {
-      id: `dt-${Date.now()}`,
-      stateId: district.stateId || 'st-mp',
-      nameHindi: district.nameHindi || 'नया जिला',
-      nameEnglish: district.nameEnglish || 'New District',
-      slug: district.slug || `district-${Date.now()}`,
-      isEnabled: true
-    };
-    districts.push(newDistrict);
+
     setItem(STORAGE_KEYS.DISTRICTS, districts);
-    return newDistrict;
+    apiCall('/api/districts', 'POST', targetDt);
+    return targetDt;
   }
 
   static deleteDistrict(id: string): void {
     const districts: District[] = getItem(STORAGE_KEYS.DISTRICTS, INITIAL_DISTRICTS);
     setItem(STORAGE_KEYS.DISTRICTS, districts.filter(d => d.id !== id));
+    apiCall(`/api/districts/${id}`, 'DELETE');
   }
 
   // --- REPORTERS ---
@@ -304,40 +469,64 @@ export class NewsService {
 
   static saveReporter(reporter: Partial<Reporter>): Reporter {
     const reporters: Reporter[] = getItem(STORAGE_KEYS.REPORTERS, INITIAL_REPORTERS);
+    let targetRep: Reporter;
+
     if (reporter.id) {
       const idx = reporters.findIndex(r => r.id === reporter.id);
       if (idx !== -1) {
-        reporters[idx] = { ...reporters[idx], ...reporter };
-        setItem(STORAGE_KEYS.REPORTERS, reporters);
-        return reporters[idx];
+        targetRep = { ...reporters[idx], ...reporter };
+        reporters[idx] = targetRep;
+      } else {
+        targetRep = {
+          id: reporter.id,
+          name: reporter.name || 'संवाददाता',
+          photo: reporter.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80',
+          mobile: reporter.mobile || '',
+          email: reporter.email || '',
+          designation: reporter.designation || 'संवाददाता',
+          role: reporter.role || 'reporter',
+          stateId: reporter.stateId || 'st-mp',
+          stateName: reporter.stateName || 'मध्य प्रदेश',
+          districtId: reporter.districtId || 'dt-ujn',
+          districtName: reporter.districtName || 'उज्जैन',
+          bio: reporter.bio || '',
+          articlesCount: 0,
+          status: 'active',
+          memberId: reporter.memberId || `TDS-MEM-${Math.floor(8000 + Math.random() * 1000)}`
+        };
+        reporters.push(targetRep);
       }
+    } else {
+      targetRep = {
+        id: `rep-${Date.now()}`,
+        name: reporter.name || 'संवाददाता',
+        photo: reporter.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80',
+        mobile: reporter.mobile || '',
+        email: reporter.email || '',
+        designation: reporter.designation || 'संवाददाता',
+        role: reporter.role || 'reporter',
+        stateId: reporter.stateId || 'st-mp',
+        stateName: reporter.stateName || 'मध्य प्रदेश',
+        districtId: reporter.districtId || 'dt-ujn',
+        districtName: reporter.districtName || 'उज्जैन',
+        bio: reporter.bio || '',
+        articlesCount: 0,
+        status: 'active',
+        memberId: `TDS-MEM-${Math.floor(8000 + Math.random() * 1000)}`
+      };
+      reporters.push(targetRep);
     }
-    const newRep: Reporter = {
-      id: `rep-${Date.now()}`,
-      name: reporter.name || 'संवाददाता',
-      photo: reporter.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80',
-      mobile: reporter.mobile || '',
-      email: reporter.email || '',
-      designation: reporter.designation || 'संवाददाता',
-      role: reporter.role || 'reporter',
-      stateId: reporter.stateId || 'st-mp',
-      stateName: reporter.stateName || 'मध्य प्रदेश',
-      districtId: reporter.districtId || 'dt-ujn',
-      districtName: reporter.districtName || 'उज्जैन',
-      bio: reporter.bio || '',
-      articlesCount: 0,
-      status: 'active',
-      memberId: `TDS-MEM-${Math.floor(8000 + Math.random() * 1000)}`
-    };
-    reporters.push(newRep);
+
     setItem(STORAGE_KEYS.REPORTERS, reporters);
-    return newRep;
+    apiCall('/api/reporters', 'POST', targetRep);
+    return targetRep;
   }
 
   static deleteReporter(id: string): void {
     const reporters: Reporter[] = getItem(STORAGE_KEYS.REPORTERS, INITIAL_REPORTERS);
     const filtered = reporters.filter(r => r.id !== id);
     setItem(STORAGE_KEYS.REPORTERS, filtered);
+    apiCall(`/api/reporters/${id}`, 'DELETE');
   }
 
   // --- MEMBER APPLICATIONS ---
@@ -358,6 +547,7 @@ export class NewsService {
 
     apps.unshift(newApp);
     setItem(STORAGE_KEYS.APPLICATIONS, apps);
+    apiCall('/api/applications', 'POST', newApp);
     return newApp;
   }
 
@@ -402,12 +592,14 @@ export class NewsService {
 
     apps[idx] = app;
     setItem(STORAGE_KEYS.APPLICATIONS, apps);
+    apiCall(`/api/applications/${id}`, 'PUT', { status, adminRemarks: remarks, memberId: app.memberId, pressId: app.pressId });
     return app;
   }
 
   static deleteApplication(id: string): void {
     const apps: MemberApplication[] = getItem(STORAGE_KEYS.APPLICATIONS, INITIAL_APPLICATIONS);
     setItem(STORAGE_KEYS.APPLICATIONS, apps.filter(a => a.id !== id));
+    apiCall(`/api/applications/${id}`, 'DELETE');
   }
 
   // --- ID CARDS & JOINING LETTERS ---
@@ -418,6 +610,7 @@ export class NewsService {
   static deleteIDCard(id: string): void {
     const idCards: IDCard[] = getItem(STORAGE_KEYS.ID_CARDS, INITIAL_ID_CARDS);
     setItem(STORAGE_KEYS.ID_CARDS, idCards.filter(c => c.id !== id));
+    apiCall(`/api/id-cards/${id}`, 'DELETE');
   }
 
   static generateIDCardForApp(app: MemberApplication): IDCard {
@@ -450,6 +643,7 @@ export class NewsService {
 
     idCards.unshift(newCard);
     setItem(STORAGE_KEYS.ID_CARDS, idCards);
+    apiCall('/api/id-cards', 'POST', newCard);
     return newCard;
   }
 
@@ -459,49 +653,76 @@ export class NewsService {
 
   static saveJoiningLetter(letterData: Partial<JoiningLetter>): JoiningLetter {
     const letters: JoiningLetter[] = getItem(STORAGE_KEYS.JOINING_LETTERS, INITIAL_JOINING_LETTERS);
+    let targetLetter: JoiningLetter;
+
     if (letterData.id) {
       const idx = letters.findIndex(l => l.id === letterData.id);
       if (idx !== -1) {
-        const updated = { ...letters[idx], ...letterData } as JoiningLetter;
-        letters[idx] = updated;
-        setItem(STORAGE_KEYS.JOINING_LETTERS, letters);
-        return updated;
+        targetLetter = { ...letters[idx], ...letterData } as JoiningLetter;
+        letters[idx] = targetLetter;
+      } else {
+        targetLetter = {
+          id: letterData.id,
+          letterNo: letterData.letterNo || `TDS/HR/${new Date().getFullYear()}/${Math.floor(1000 + Math.random() * 9000)}`,
+          applicationId: letterData.applicationId || '',
+          memberId: letterData.memberId || `TDS-MEM-${Math.floor(8000 + Math.random() * 1000)}`,
+          name: letterData.name || 'पत्रकार का नाम',
+          designation: letterData.designation || 'जिला संवाददाता',
+          stateName: letterData.stateName || 'मध्य प्रदेश',
+          districtName: letterData.districtName || 'उज्जैन',
+          issueDate: letterData.issueDate || new Date().toISOString().split('T')[0],
+          joiningDate: letterData.joiningDate || new Date().toISOString().split('T')[0],
+          responsibilities: letterData.responsibilities || [
+            'सत्य, पारदर्शी एवं निष्पक्ष समाचारों का संकलन।',
+            'सम्पादकीय नीतियों एवं आचार संहिता का पालन।',
+            'जनसमस्याओं और विकास कार्यों का यथार्थवादी कवरेज।'
+          ],
+          terms: letterData.terms || [
+            'यह नियुक्ति पत्र त्रिकाल दर्शन समाचार मीडिया हाऊस द्वारा जारी अधिकृत दस्तावेज है।',
+            'पत्रकारिता के नैतिक मूल्यों का उल्लंघन करने पर नियुक्ति स्वतः निरस्त मानी जाएगी।',
+            'प्रेस परिचय पत्र केवल समाचार संकलन कार्य हेतु मान्य होगा।'
+          ],
+          editorName: letterData.editorName || 'राजकमल पांडेय - प्रधान सम्पादक (Editor-in-Chief)'
+        };
+        letters.unshift(targetLetter);
       }
+    } else {
+      targetLetter = {
+        id: `jl-${Date.now()}`,
+        letterNo: letterData.letterNo || `TDS/HR/${new Date().getFullYear()}/${Math.floor(1000 + Math.random() * 9000)}`,
+        applicationId: letterData.applicationId || '',
+        memberId: letterData.memberId || `TDS-MEM-${Math.floor(8000 + Math.random() * 1000)}`,
+        name: letterData.name || 'पत्रकार का नाम',
+        designation: letterData.designation || 'जिला संवाददाता',
+        stateName: letterData.stateName || 'मध्य प्रदेश',
+        districtName: letterData.districtName || 'उज्जैन',
+        issueDate: letterData.issueDate || new Date().toISOString().split('T')[0],
+        joiningDate: letterData.joiningDate || new Date().toISOString().split('T')[0],
+        responsibilities: letterData.responsibilities || [
+          'सत्य, पारदर्शी एवं निष्पक्ष समाचारों का संकलन।',
+          'सम्पादकीय नीतियों एवं आचार संहिता का पालन।',
+          'जनसमस्याओं और विकास कार्यों का यथार्थवादी कवरेज।'
+        ],
+        terms: letterData.terms || [
+          'यह नियुक्ति पत्र त्रिकाल दर्शन समाचार मीडिया हाऊस द्वारा जारी अधिकृत दस्तावेज है।',
+          'पत्रकारिता के नैतिक मूल्यों का उल्लंघन करने पर नियुक्ति स्वतः निरस्त मानी जाएगी।',
+          'प्रेस परिचय पत्र केवल समाचार संकलन कार्य हेतु मान्य होगा।'
+        ],
+        editorName: letterData.editorName || 'राजकमल पांडेय - प्रधान सम्पादक (Editor-in-Chief)'
+      };
+      letters.unshift(targetLetter);
     }
 
-    const newLetter: JoiningLetter = {
-      id: `jl-${Date.now()}`,
-      letterNo: letterData.letterNo || `TDS/HR/${new Date().getFullYear()}/${Math.floor(1000 + Math.random() * 9000)}`,
-      applicationId: letterData.applicationId || '',
-      memberId: letterData.memberId || `TDS-MEM-${Math.floor(8000 + Math.random() * 1000)}`,
-      name: letterData.name || 'पत्रकार का नाम',
-      designation: letterData.designation || 'जिला संवाददाता',
-      stateName: letterData.stateName || 'मध्य प्रदेश',
-      districtName: letterData.districtName || 'उज्जैन',
-      issueDate: letterData.issueDate || new Date().toISOString().split('T')[0],
-      joiningDate: letterData.joiningDate || new Date().toISOString().split('T')[0],
-      responsibilities: letterData.responsibilities || [
-        'सत्य, पारदर्शी एवं निष्पक्ष समाचारों का संकलन।',
-        'सम्पादकीय नीतियों एवं आचार संहिता का पालन।',
-        'जनसमस्याओं और विकास कार्यों का यथार्थवादी कवरेज।'
-      ],
-      terms: letterData.terms || [
-        'यह नियुक्ति पत्र त्रिकाल दर्शन समाचार मीडिया हाऊस द्वारा जारी अधिकृत दस्तावेज है।',
-        'पत्रकारिता के नैतिक मूल्यों का उल्लंघन करने पर नियुक्ति स्वतः निरस्त मानी जाएगी।',
-        'प्रेस परिचय पत्र केवल समाचार संकलन कार्य हेतु मान्य होगा।'
-      ],
-      editorName: letterData.editorName || 'राजकमल पांडेय - प्रधान सम्पादक (Editor-in-Chief)'
-    };
-
-    letters.unshift(newLetter);
     setItem(STORAGE_KEYS.JOINING_LETTERS, letters);
-    return newLetter;
+    apiCall('/api/joining-letters', 'POST', targetLetter);
+    return targetLetter;
   }
 
   static deleteJoiningLetter(id: string): void {
     const letters: JoiningLetter[] = getItem(STORAGE_KEYS.JOINING_LETTERS, INITIAL_JOINING_LETTERS);
     const filtered = letters.filter(l => l.id !== id);
     setItem(STORAGE_KEYS.JOINING_LETTERS, filtered);
+    apiCall(`/api/joining-letters/${id}`, 'DELETE');
   }
 
   static generateJoiningLetterForApp(app: MemberApplication): JoiningLetter {
@@ -535,6 +756,7 @@ export class NewsService {
 
     letters.unshift(newLetter);
     setItem(STORAGE_KEYS.JOINING_LETTERS, letters);
+    apiCall('/api/joining-letters', 'POST', newLetter);
     return newLetter;
   }
 
@@ -549,36 +771,53 @@ export class NewsService {
 
   static saveAdvertisement(adData: Partial<Advertisement>): Advertisement {
     const ads: Advertisement[] = getItem(STORAGE_KEYS.ADVERTISEMENTS, INITIAL_ADVERTISEMENTS);
+    let targetAd: Advertisement;
+
     if (adData.id) {
       const idx = ads.findIndex(a => a.id === adData.id);
       if (idx !== -1) {
-        ads[idx] = { ...ads[idx], ...adData };
-        setItem(STORAGE_KEYS.ADVERTISEMENTS, ads);
-        return ads[idx];
+        targetAd = { ...ads[idx], ...adData };
+        ads[idx] = targetAd;
+      } else {
+        targetAd = {
+          id: adData.id,
+          title: adData.title || 'विज्ञापन',
+          type: adData.type || 'top_banner',
+          imageUrl: adData.imageUrl || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=1200&q=80',
+          targetUrl: adData.targetUrl || '#',
+          startDate: adData.startDate || new Date().toISOString().split('T')[0],
+          endDate: adData.endDate || '2026-12-31',
+          isActive: true,
+          impressions: 0,
+          clicks: 0
+        };
+        ads.push(targetAd);
       }
+    } else {
+      targetAd = {
+        id: `ad-${Date.now()}`,
+        title: adData.title || 'विज्ञापन',
+        type: adData.type || 'top_banner',
+        imageUrl: adData.imageUrl || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=1200&q=80',
+        targetUrl: adData.targetUrl || '#',
+        startDate: adData.startDate || new Date().toISOString().split('T')[0],
+        endDate: adData.endDate || '2026-12-31',
+        isActive: true,
+        impressions: 0,
+        clicks: 0
+      };
+      ads.push(targetAd);
     }
 
-    const newAd: Advertisement = {
-      id: `ad-${Date.now()}`,
-      title: adData.title || 'विज्ञापन',
-      type: adData.type || 'top_banner',
-      imageUrl: adData.imageUrl || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=1200&q=80',
-      targetUrl: adData.targetUrl || '#',
-      startDate: adData.startDate || new Date().toISOString().split('T')[0],
-      endDate: adData.endDate || '2026-12-31',
-      isActive: true,
-      impressions: 0,
-      clicks: 0
-    };
-
-    ads.push(newAd);
     setItem(STORAGE_KEYS.ADVERTISEMENTS, ads);
-    return newAd;
+    apiCall('/api/advertisements', 'POST', targetAd);
+    return targetAd;
   }
 
   static deleteAdvertisement(id: string): void {
     const ads: Advertisement[] = getItem(STORAGE_KEYS.ADVERTISEMENTS, INITIAL_ADVERTISEMENTS);
     setItem(STORAGE_KEYS.ADVERTISEMENTS, ads.filter(a => a.id !== id));
+    apiCall(`/api/advertisements/${id}`, 'DELETE');
   }
 
   static sanitizeUrl(url?: string): string {
@@ -622,15 +861,16 @@ export class NewsService {
   static saveSocialLinks(links: SocialLink[]): void {
     const sanitized = links.map(l => ({ ...l, url: this.sanitizeUrl(l.url) }));
     setItem(STORAGE_KEYS.SOCIAL_LINKS, sanitized);
+    apiCall('/api/social-links', 'POST', sanitized);
   }
 
   // --- WEBSITE SETTINGS & PANCHANG ---
   static getSettings(): WebsiteSettings {
     const saved = getItem<WebsiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
     const merged = { ...INITIAL_SETTINGS, ...saved };
-    // Always enforce default website logo and official contact email to prevent stale local storage overrides
-    merged.logoImageUrl = INITIAL_SETTINGS.logoImageUrl;
-    merged.contactEmail = INITIAL_SETTINGS.contactEmail;
+    if (!merged.logoImageUrl) {
+      merged.logoImageUrl = INITIAL_SETTINGS.logoImageUrl;
+    }
     return merged;
   }
 
@@ -666,12 +906,19 @@ export class NewsService {
         return { ...item, url: this.sanitizeUrl(newUrl) };
       });
       setItem(STORAGE_KEYS.SOCIAL_LINKS, updatedArray);
+      apiCall('/api/social-links', 'POST', updatedArray);
     }
 
+    apiCall('/api/settings', 'POST', updated);
     return updated;
   }
 
   static getPanchang(): PanchangInfo {
     return getItem(STORAGE_KEYS.PANCHANG, INITIAL_PANCHANG);
   }
+}
+
+// Auto-initialize when loaded
+if (typeof window !== 'undefined') {
+  NewsService.init();
 }

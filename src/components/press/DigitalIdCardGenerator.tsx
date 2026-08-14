@@ -8,12 +8,10 @@ import {
   ShieldCheck, Sparkles, Image as ImageIcon, CreditCard, Copy, Check,
   Loader2
 } from 'lucide-react';
-import defaultLogoImg from '../../assets/9.png';
-import rajkamalSignatureSvg from '../../assets/images/rajkamal_signature.svg';
 import { NewsService } from '../../services/newsService';
 
 // Default realistic Rajkamal signature SVG asset
-const DEFAULT_SIGNATURE_SVG = rajkamalSignatureSvg;
+const DEFAULT_SIGNATURE_SVG = '/rajkamal_signature.svg';
 
 // Default sample reporter photograph
 const DEFAULT_PHOTO = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=400';
@@ -45,7 +43,7 @@ export interface IDCardFormData {
 
 const DEFAULT_FORM_DATA: IDCardFormData = {
   name: 'राहुल शर्मा',
-  logo: defaultLogoImg,
+  logo: '/logo.png',
   photo: DEFAULT_PHOTO,
   pressId: 'TDS/EMP/2025/078',
   joiningDate: '01 मई 2025',
@@ -95,7 +93,7 @@ const FrontCardContent = React.forwardRef<HTMLDivElement, { formData: IDCardForm
           {/* Circular Logo & Header Titles */}
           <div className="flex items-center justify-center gap-3 relative z-10">
             <div className="w-16 h-16 rounded-full border-2 border-amber-400 p-0.5 overflow-hidden bg-white shrink-0 shadow-lg flex items-center justify-center">
-              <img src={formData.logo || defaultLogoImg} alt="Trikal Logo" className="w-full h-full object-cover rounded-full" />
+              <img src={formData.logo || '/logo.png'} alt="Trikal Logo" className="w-full h-full object-cover rounded-full" />
             </div>
             <div className="text-white text-left">
               <h1 className="font-black font-serif-devanagari text-2xl leading-tight tracking-wide text-white drop-shadow-md">
@@ -213,7 +211,7 @@ const BackCardContent = React.forwardRef<HTMLDivElement, { formData: IDCardFormD
 
         <div className="flex items-center justify-center gap-2.5">
           <div className="w-10 h-10 rounded-full border border-amber-300 overflow-hidden bg-white shrink-0 p-0.5 shadow-sm">
-            <img src={formData.logo || defaultLogoImg} alt="Trikal Logo" className="w-full h-full object-cover rounded-full" />
+            <img src={formData.logo || '/logo.png'} alt="Trikal Logo" className="w-full h-full object-cover rounded-full" />
           </div>
           <span className="font-black text-base font-serif-devanagari tracking-wide text-white">
             {formData.backHeaderTitle || 'डिजिटल मीडिया पहचान पत्र'}
@@ -739,7 +737,7 @@ export const DigitalIdCardGenerator: React.FC = () => {
                 <div className="flex flex-col sm:flex-row items-stretch gap-3 bg-white p-3 rounded-xl border border-red-200 shadow-2xs">
                   {/* Logo Preview Frame */}
                   <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-amber-400 bg-white shrink-0 relative group shadow-xs mx-auto sm:mx-0 flex items-center justify-center p-0.5">
-                    <img src={formData.logo || defaultLogoImg} alt="Logo Preview" className="w-full h-full object-cover rounded-full" />
+                    <img src={formData.logo || '/logo.png'} alt="Logo Preview" className="w-full h-full object-cover rounded-full" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[9px] font-bold rounded-full">
                       लोगो
                     </div>
@@ -767,7 +765,7 @@ export const DigitalIdCardGenerator: React.FC = () => {
 
                       <button
                         type="button"
-                        onClick={() => setFormData({ ...formData, logo: defaultLogoImg })}
+                        onClick={() => setFormData({ ...formData, logo: '/logo.png' })}
                         className="px-2.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-[10px] rounded-xl transition border border-gray-300 cursor-pointer shrink-0"
                       >
                         डिफ़ॉल्ट लोगो

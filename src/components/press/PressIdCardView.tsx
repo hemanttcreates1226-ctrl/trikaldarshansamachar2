@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { ShieldCheck, MapPin, Award, CheckCircle2, Phone, Mail, Globe, Printer } from 'lucide-react';
 import { IDCard } from '../../types/news';
-import rajkamalSignatureSvg from '../../assets/images/rajkamal_signature.svg';
+
+const rajkamalSignatureSvg = '/rajkamal_signature.svg';
 
 interface PressIdCardViewProps {
   idCard: IDCard;

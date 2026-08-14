@@ -1,7 +1,8 @@
 import React from 'react';
 import { TrikalLogo } from '../brand/TrikalLogo';
 import { JoiningLetter } from '../../types/news';
-import rajkamalSignatureSvg from '../../assets/images/rajkamal_signature.svg';
+
+const rajkamalSignatureSvg = '/rajkamal_signature.svg';
 
 interface JoiningLetterViewProps {
   letter: JoiningLetter;

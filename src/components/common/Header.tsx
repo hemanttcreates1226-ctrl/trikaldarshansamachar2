@@ -48,9 +48,14 @@ export const Header: React.FC<HeaderProps> = ({
   const [tempDistrictId, setTempDistrictId] = useState(selectedDistrictId);
 
   useEffect(() => {
-    setCategories(NewsService.getCategories());
-    setStates(NewsService.getStates());
-    setDistricts(NewsService.getDistricts(selectedStateId));
+    const loadHeaderData = () => {
+      setCategories(NewsService.getCategories());
+      setStates(NewsService.getStates());
+      setDistricts(NewsService.getDistricts(selectedStateId));
+    };
+
+    loadHeaderData();
+    window.addEventListener('tds_data_updated', loadHeaderData);
 
     const updateDateTime = () => {
       const now = new Date();
@@ -66,7 +71,10 @@ export const Header: React.FC<HeaderProps> = ({
 
     updateDateTime();
     const interval = setInterval(updateDateTime, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('tds_data_updated', loadHeaderData);
+    };
   }, [selectedStateId]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
