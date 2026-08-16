@@ -21,6 +21,7 @@ import { NewsArticle } from '../types/news';
 import { NewsService } from '../services/newsService';
 import { NewsCard } from '../components/news/NewsCard';
 import { AdvertisementContainer } from '../components/news/AdvertisementContainer';
+import { handleImageError } from '../lib/imageFallback';
 
 interface ArticleDetailPageProps {
   articleIdOrSlug: string;
@@ -217,19 +218,13 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
 
         {/* Meta Bar: Author, Date, Views, Audio Reader & Font Size Controls */}
         <div className="bg-[#FBF8F3] border border-amber-900/10 rounded-xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
-          {/* Reporter Info */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 shrink-0 border border-[#B7652A]">
-              <img
-                src={article.reporterId ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&q=80' : 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&q=80'}
-                alt={article.authorName}
-                className="w-full h-full object-cover"
-              />
+          {/* Reporter / Author Info */}
+          <div className="flex flex-col justify-center">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-gray-500 font-medium">रिपोर्ट:</span>
+              <span className="font-bold text-gray-900 text-sm">{article.reporterName || article.authorName}</span>
             </div>
-            <div>
-              <p className="font-bold text-gray-900 text-sm">{article.reporterName || article.authorName}</p>
-              <p className="text-[11px] text-gray-500">त्रिकाल दर्शन समाचार टीम</p>
-            </div>
+            <p className="text-[11px] text-gray-500">त्रिकाल दर्शन समाचार टीम</p>
           </div>
 
           {/* Time & Views */}
@@ -291,6 +286,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
           <img
             src={article.featuredImage}
             alt={article.title}
+            onError={handleImageError}
             className="w-full h-auto max-h-[480px] object-cover"
           />
           <div className="bg-red-50/90 text-[#D71920] text-xs p-2.5 flex items-center justify-between font-bold border-t border-red-200">

@@ -123,6 +123,7 @@ export function App() {
       {/* Header & Breaking News Ticker */}
       <div>
         <Header
+          currentPath={currentPath}
           onNavigate={navigateTo}
           onSearchSubmit={handleSearchSubmit}
         />
@@ -342,6 +343,28 @@ export function App() {
         {/* 8. ABOUT & CONTACT PAGE */}
         {(currentPath === '/about' || currentPath === '/contact') && (
           <AboutContactPage />
+        )}
+
+        {/* 9. 404 / NOT FOUND FALLBACK */}
+        {!['/', '/join-us', '/request-id-card', '/request-joining-letter', '/search', '/about', '/contact'].includes(currentPath) &&
+          !currentPath.startsWith('/article/') &&
+          !currentPath.startsWith('/category/') &&
+          !currentPath.startsWith('/verify/') &&
+          currentPath !== '/local-news' &&
+          currentPath !== '/special-reports' &&
+          !categories.some(c => `/${c.slug}` === currentPath) && (
+            <div className="max-w-2xl mx-auto my-16 p-8 text-center bg-white rounded-xl shadow-md border border-gray-200 space-y-4">
+              <h2 className="text-3xl font-black text-[#D71920]">पृष्ठ नहीं मिला (404)</h2>
+              <p className="text-gray-600 text-sm">
+                आप जिस पृष्ठ को खोज रहे हैं, वह स्थानांतरित या हटा दिया गया हो सकता है।
+              </p>
+              <button
+                onClick={() => navigateTo('/')}
+                className="px-6 py-2.5 bg-[#D71920] hover:bg-[#A80F16] text-white font-bold rounded-lg text-sm transition cursor-pointer"
+              >
+                मुख्य पृष्ठ (होम) पर वापस जाएं
+              </button>
+            </div>
         )}
       </div>
 

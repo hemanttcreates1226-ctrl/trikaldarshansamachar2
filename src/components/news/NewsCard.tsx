@@ -1,6 +1,7 @@
 import React from 'react';
 import { Clock, Eye, MapPin, User, PlayCircle, Camera, Flame } from 'lucide-react';
 import { NewsArticle } from '../../types/news';
+import { handleImageError } from '../../lib/imageFallback';
 
 interface CardProps {
   article: NewsArticle;
@@ -19,6 +20,7 @@ export const FeaturedNewsCard: React.FC<CardProps> = ({ article, onSelect }) => 
         <img
           src={article.featuredImage}
           alt={article.title}
+          onError={handleImageError}
           className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
           loading="lazy"
         />
@@ -89,6 +91,7 @@ export const NewsCard: React.FC<CardProps> = ({ article, onSelect }) => {
         <img
           src={article.featuredImage}
           alt={article.title}
+          onError={handleImageError}
           className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
           loading="lazy"
         />
@@ -130,6 +133,7 @@ export const CompactNewsCard: React.FC<CardProps> = ({ article, onSelect }) => {
         <img
           src={article.featuredImage}
           alt={article.title}
+          onError={handleImageError}
           className="w-full h-full object-cover group-hover:scale-105 transition"
           loading="lazy"
         />
@@ -188,6 +192,7 @@ export const VideoNewsCard: React.FC<CardProps> = ({ article, onSelect }) => {
         <img
           src={article.featuredImage}
           alt={article.title}
+          onError={handleImageError}
           className="w-full h-full object-cover group-hover:scale-105 opacity-90 transition duration-500"
           loading="lazy"
         />
@@ -222,6 +227,7 @@ export const PhotoStoryCard: React.FC<CardProps> = ({ article, onSelect }) => {
       <img
         src={article.featuredImage}
         alt={article.title}
+        onError={handleImageError}
         className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
         loading="lazy"
       />
