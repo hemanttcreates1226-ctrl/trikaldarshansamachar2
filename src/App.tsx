@@ -26,14 +26,28 @@ import { AdminPage } from './pages/AdminPage';
 // Types & Services
 import { NewsArticle, Category } from './types/news';
 import { NewsService } from './services/newsService';
+import { cleanArticleSlug } from './lib/slugHelper';
 
 export function App() {
   const getPathFromUrl = () => {
-    const path = window.location.pathname.toLowerCase();
-    const hash = window.location.hash.replace('#', '').toLowerCase();
-    if (path === '/admin' || path === '/admin/' || hash === '/admin' || hash === 'admin' || hash === '/admin/') return '/admin';
-    if (path.length > 1) return window.location.pathname;
-    if (hash.length > 0) return hash.startsWith('/') ? hash : `/${hash}`;
+    const rawPath = window.location.pathname;
+    const rawHash = window.location.hash.replace(/^#/, '');
+
+    const lowerPath = rawPath.toLowerCase();
+    const lowerHash = rawHash.toLowerCase();
+
+    if (
+      lowerPath === '/admin' ||
+      lowerPath === '/admin/' ||
+      lowerHash === '/admin' ||
+      lowerHash === 'admin' ||
+      lowerHash === '/admin/'
+    ) {
+      return '/admin';
+    }
+
+    if (rawPath.length > 1) return rawPath;
+    if (rawHash.length > 0) return rawHash.startsWith('/') ? rawHash : `/${rawHash}`;
     return '/';
   };
 
@@ -291,7 +305,7 @@ export function App() {
         {/* 2. ARTICLE DETAIL READER PAGE */}
         {currentPath.startsWith('/article/') && (
           <ArticleDetailPage
-            articleIdOrSlug={currentPath.split('/article/')[1] || pathParams.id || ''}
+            articleIdOrSlug={cleanArticleSlug(currentPath.replace(/^\/article\//i, '')) || pathParams.id || ''}
             onNavigate={navigateTo}
             onSelectArticle={handleSelectArticle}
           />

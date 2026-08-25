@@ -29,6 +29,7 @@ import {
   INITIAL_PANCHANG
 } from '../data/initialData';
 import { FirestoreSyncService } from './firestoreService';
+import { articleMatchesKey, cleanArticleSlug, safeDecodeURIComponent } from '../lib/slugHelper';
 
 const STORAGE_KEYS = {
   NEWS: 'tds_news_articles_v1',
@@ -291,8 +292,11 @@ export class NewsService {
   }
 
   static getArticleByIdOrSlug(idOrSlug: string): NewsArticle | null {
+    if (!idOrSlug) return null;
     const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
-    const found = articles.find(a => a.id === idOrSlug || a.slug === idOrSlug);
+    
+    // Fast path: direct match or fuzzy multi-strategy match
+    const found = articles.find(a => articleMatchesKey(a, idOrSlug));
     if (found) {
       found.views = (found.views || 0) + 1;
       setItem(STORAGE_KEYS.NEWS, articles, false);
@@ -302,8 +306,13 @@ export class NewsService {
   }
 
   static async fetchArticleAsync(idOrSlug: string): Promise<NewsArticle | null> {
+    if (!idOrSlug) return null;
+    const rawKey = String(idOrSlug).trim();
+    const cleanKey = cleanArticleSlug(idOrSlug);
+    const decodedKey = safeDecodeURIComponent(idOrSlug);
+
     // 1. Try local cache first
-    const cached = this.getArticleByIdOrSlug(idOrSlug);
+    const cached = this.getArticleByIdOrSlug(cleanKey) || this.getArticleByIdOrSlug(rawKey);
     if (cached) return cached;
 
     // 2. Try fetching directly from Cloud Firestore
@@ -311,48 +320,85 @@ export class NewsService {
       const { doc, getDoc, collection, query, where, getDocs } = await import('firebase/firestore');
       const { db } = await import('../lib/firebase');
 
-      // Check by doc ID
-      const docRef = doc(db, 'news', idOrSlug);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const article = docSnap.data() as NewsArticle;
-        if (article && article.id) {
-          const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
-          const existingIdx = articles.findIndex(a => a.id === article.id);
-          if (existingIdx !== -1) {
-            articles[existingIdx] = article;
-          } else {
-            articles.unshift(article);
+      // Check by doc ID (raw and clean)
+      const docIdsToTry = Array.from(new Set([cleanKey, rawKey, decodedKey])).filter(Boolean);
+      for (const dId of docIdsToTry) {
+        try {
+          const docRef = doc(db, 'news', dId);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const article = docSnap.data() as NewsArticle;
+            if (article && article.id) {
+              const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
+              const existingIdx = articles.findIndex(a => a.id === article.id);
+              if (existingIdx !== -1) {
+                articles[existingIdx] = article;
+              } else {
+                articles.unshift(article);
+              }
+              setItem(STORAGE_KEYS.NEWS, articles);
+              return article;
+            }
           }
-          setItem(STORAGE_KEYS.NEWS, articles);
-          return article;
-        }
+        } catch {}
       }
 
-      // Check by slug
-      const q = query(collection(db, 'news'), where('slug', '==', idOrSlug));
-      const qSnap = await getDocs(q);
-      if (!qSnap.empty) {
-        const article = qSnap.docs[0].data() as NewsArticle;
-        if (article && article.id) {
-          const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
-          const existingIdx = articles.findIndex(a => a.id === article.id);
-          if (existingIdx !== -1) {
-            articles[existingIdx] = article;
-          } else {
-            articles.unshift(article);
+      // Check by slug query (both decoded and raw)
+      const slugQueriesToTry = Array.from(new Set([cleanKey, decodedKey, rawKey])).filter(Boolean);
+      for (const s of slugQueriesToTry) {
+        try {
+          const q = query(collection(db, 'news'), where('slug', '==', s));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) {
+            const article = qSnap.docs[0].data() as NewsArticle;
+            if (article && article.id) {
+              const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
+              const existingIdx = articles.findIndex(a => a.id === article.id);
+              if (existingIdx !== -1) {
+                articles[existingIdx] = article;
+              } else {
+                articles.unshift(article);
+              }
+              setItem(STORAGE_KEYS.NEWS, articles);
+              return article;
+            }
           }
-          setItem(STORAGE_KEYS.NEWS, articles);
-          return article;
-        }
+        } catch {}
       }
+
+      // If specific queries didn't find it, get news collection snapshot and match locally
+      try {
+        const fullSnap = await getDocs(collection(db, 'news'));
+        if (!fullSnap.empty) {
+          const allDocs: NewsArticle[] = [];
+          let matchFound: NewsArticle | null = null;
+          fullSnap.forEach((d) => {
+            const art = d.data() as NewsArticle;
+            if (art && art.id) {
+              allDocs.push(art);
+              if (!matchFound && articleMatchesKey(art, cleanKey)) {
+                matchFound = art;
+              }
+            }
+          });
+
+          if (allDocs.length > 0) {
+            setItem(STORAGE_KEYS.NEWS, allDocs);
+          }
+
+          if (matchFound) {
+            return matchFound;
+          }
+        }
+      } catch {}
     } catch (e) {
       console.warn('Firestore direct fetch notice:', e);
     }
 
     // 3. Fetch directly from server API if not found locally or in firestore
     try {
-      const serverArticle = await apiCall(`/api/articles/${encodeURIComponent(idOrSlug)}`);
+      const serverKey = encodeURIComponent(cleanKey || rawKey);
+      const serverArticle = await apiCall(`/api/articles/${serverKey}`);
       if (serverArticle && serverArticle.id) {
         const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
         const existingIdx = articles.findIndex(a => a.id === serverArticle.id);

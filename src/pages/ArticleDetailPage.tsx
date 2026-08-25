@@ -22,6 +22,7 @@ import { NewsService } from '../services/newsService';
 import { NewsCard } from '../components/news/NewsCard';
 import { AdvertisementContainer } from '../components/news/AdvertisementContainer';
 import { handleImageError } from '../lib/imageFallback';
+import { cleanArticleSlug, safeDecodeURIComponent } from '../lib/slugHelper';
 
 interface ArticleDetailPageProps {
   articleIdOrSlug: string;
@@ -34,8 +35,13 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
   onNavigate,
   onSelectArticle
 }) => {
-  const [article, setArticle] = useState<NewsArticle | null>(() => NewsService.getArticleByIdOrSlug(articleIdOrSlug));
-  const [loading, setLoading] = useState<boolean>(() => !NewsService.getArticleByIdOrSlug(articleIdOrSlug));
+  const normalizedKey = cleanArticleSlug(articleIdOrSlug);
+  const [article, setArticle] = useState<NewsArticle | null>(() => 
+    NewsService.getArticleByIdOrSlug(normalizedKey) || NewsService.getArticleByIdOrSlug(articleIdOrSlug)
+  );
+  const [loading, setLoading] = useState<boolean>(() => 
+    !(NewsService.getArticleByIdOrSlug(normalizedKey) || NewsService.getArticleByIdOrSlug(articleIdOrSlug))
+  );
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg' | 'xl'>('base');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [speechSynth, setSpeechSynth] = useState<SpeechSynthesis | null>(null);
@@ -48,10 +54,11 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
 
   useEffect(() => {
     let isMounted = true;
+    const targetKey = cleanArticleSlug(articleIdOrSlug);
 
     const loadArticle = async () => {
-      // 1. Check local cache
-      const local = NewsService.getArticleByIdOrSlug(articleIdOrSlug);
+      // 1. Check local cache first
+      const local = NewsService.getArticleByIdOrSlug(targetKey) || NewsService.getArticleByIdOrSlug(articleIdOrSlug);
       if (local) {
         if (isMounted) {
           setArticle(local);
@@ -60,11 +67,13 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
         return;
       }
 
-      // 2. Fetch asynchronously from server if not found in local cache
+      // 2. Fetch asynchronously from server/firestore if not found in local cache
       if (isMounted) setLoading(true);
-      const serverFetched = await NewsService.fetchArticleAsync(articleIdOrSlug);
+      const serverFetched = await NewsService.fetchArticleAsync(targetKey || articleIdOrSlug);
       if (isMounted) {
-        setArticle(serverFetched);
+        if (serverFetched) {
+          setArticle(serverFetched);
+        }
         setLoading(false);
       }
     };
@@ -73,7 +82,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     window.scrollTo(0, 0);
 
     const handleUpdate = () => {
-      const updated = NewsService.getArticleByIdOrSlug(articleIdOrSlug);
+      const updated = NewsService.getArticleByIdOrSlug(targetKey) || NewsService.getArticleByIdOrSlug(articleIdOrSlug);
       if (updated && isMounted) {
         setArticle(updated);
         setLoading(false);
@@ -82,6 +91,17 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
 
     window.addEventListener('tds_data_updated', handleUpdate);
 
+    // Direct Firestore subscription in case live sync brings the article
+    const unsubNews = NewsService.subscribeToNews((realtimeNews) => {
+      if (isMounted && realtimeNews && realtimeNews.length > 0) {
+        const found = NewsService.getArticleByIdOrSlug(targetKey) || NewsService.getArticleByIdOrSlug(articleIdOrSlug);
+        if (found) {
+          setArticle(found);
+          setLoading(false);
+        }
+      }
+    });
+
     if ('speechSynthesis' in window) {
       setSpeechSynth(window.speechSynthesis);
     }
@@ -89,6 +109,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     return () => {
       isMounted = false;
       window.removeEventListener('tds_data_updated', handleUpdate);
+      unsubNews();
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
@@ -110,6 +131,9 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
         <h2 className="text-2xl font-bold font-serif-devanagari text-gray-800">
           समाचार उपलब्ध नहीं है या हटा दिया गया है।
         </h2>
+        <p className="text-gray-500 text-sm">
+          यह खबर अपडेट हो रही हो सकती है या लिंक बदल गया है।
+        </p>
         <button
           onClick={() => onNavigate('/')}
           className="px-5 py-2.5 bg-[#D71920] hover:bg-[#b01319] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer"
@@ -140,10 +164,32 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     }
   };
 
+  const articleCanonicalUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/article/${encodeURIComponent(article.slug || article.id)}`
+    : '';
+
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
+    const urlToCopy = articleCanonicalUrl || (typeof window !== 'undefined' ? window.location.href : '');
+    navigator.clipboard.writeText(urlToCopy);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleNativeShare = async () => {
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: article.title,
+          text: `${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर:`,
+          url: articleCanonicalUrl
+        });
+      } catch (err) {
+        // Fallback to copy link
+        handleCopyLink();
+      }
+    } else {
+      handleCopyLink();
+    }
   };
 
   const handleAddComment = (e: React.FormEvent) => {
@@ -174,8 +220,10 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     limit: 3
   }).filter(a => a.id !== article.id);
 
-  const shareText = encodeURIComponent(`${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर: `);
-  const shareUrl = encodeURIComponent(window.location.href);
+  const rawUrl = articleCanonicalUrl || (typeof window !== 'undefined' ? window.location.href : '');
+  const whatsappText = encodeURIComponent(`${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर:\n${rawUrl}`);
+  const encodedShareUrl = encodeURIComponent(rawUrl);
+  const encodedTitle = encodeURIComponent(article.title);
 
   return (
     <article className="py-8 px-4 bg-white text-gray-900 min-h-screen">
@@ -327,8 +375,17 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {typeof navigator !== 'undefined' && 'share' in navigator && (
+              <button
+                onClick={handleNativeShare}
+                className="px-3.5 py-1.5 bg-[#B7652A] hover:bg-[#964E1D] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>शेयर करें</span>
+              </button>
+            )}
             <a
-              href={`https://api.whatsapp.com/send?text=${shareText}${shareUrl}`}
+              href={`https://api.whatsapp.com/send?text=${whatsappText}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-3.5 py-1.5 bg-[#25D366] hover:bg-[#20ba5a] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
@@ -339,7 +396,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
               <span>WhatsApp</span>
             </a>
             <a
-              href={`https://www.facebook.com/sharer/sharer.php?u=${shareUrl}`}
+              href={`https://www.facebook.com/sharer/sharer.php?u=${encodedShareUrl}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
@@ -347,7 +404,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
               Facebook
             </a>
             <a
-              href={`https://telegram.me/share/url?url=${shareUrl}&text=${shareText}`}
+              href={`https://telegram.me/share/url?url=${encodedShareUrl}&text=${encodedTitle}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-3.5 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"

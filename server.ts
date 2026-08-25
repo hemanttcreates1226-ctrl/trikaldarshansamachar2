@@ -2,6 +2,18 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import {
+  getFirestore,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  where
+} from "firebase/firestore";
+import firebaseConfigJson from "./firebase-applet-config.json";
 import {
   INITIAL_NEWS,
   INITIAL_CATEGORIES,
@@ -19,6 +31,12 @@ import {
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "database.json");
+
+// Initialize Firebase App & Firestore on the Server
+const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
+const firestoreDb = firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== "(default)"
+  ? getFirestore(firebaseApp, firebaseConfigJson.firestoreDatabaseId)
+  : getFirestore(firebaseApp);
 
 interface ServerDatabase {
   news: any[];
@@ -104,8 +122,39 @@ function saveDatabaseToDisk(): void {
   }
 }
 
+// Set up background Firestore real-time synchronization for server
+function initFirestoreSync(): void {
+  try {
+    const newsCol = collection(firestoreDb, "news");
+    onSnapshot(newsCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const cloudArticles: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) {
+            cloudArticles.push(data);
+          }
+        });
+        cloudArticles.sort((a, b) => {
+          const dateA = new Date(a.publishDate || a.updatedDate || 0).getTime();
+          const dateB = new Date(b.publishDate || b.updatedDate || 0).getTime();
+          return dateB - dateA;
+        });
+        inMemoryDb.news = cloudArticles;
+        saveDatabaseToDisk();
+        console.log(`[Firestore Sync] Synchronized ${cloudArticles.length} articles into server memory`);
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Snapshot listener warning:", err.message);
+    });
+  } catch (err) {
+    console.warn("[Firestore Sync] Could not initialize Firestore listener:", err);
+  }
+}
+
 async function startServer() {
   loadDatabaseFromDisk();
+  initFirestoreSync();
 
   const app = express();
   const PORT = 3000;
@@ -159,14 +208,79 @@ async function startServer() {
     }
   });
 
-  // --- ARTICLES CRUD ---
+  // --- ARTICLES CRUD & IMAGE ENDPOINTS ---
   app.get("/api/articles", (req, res) => {
     res.json(inMemoryDb.news);
   });
 
-  app.get("/api/articles/:idOrSlug", (req, res) => {
+  // Dedicated Binary Image Endpoint for WhatsApp / Social Previews & Client Rendering
+  app.get(
+    ["/api/articles/:idOrSlug/image", "/api/articles/:idOrSlug/image.jpg", "/api/articles/:idOrSlug/thumbnail.jpg"],
+    async (req, res) => {
+      try {
+        const { idOrSlug } = req.params;
+        const article = await findArticleAsync(idOrSlug);
+        const baseUrl = getBaseUrl(req);
+
+        if (!article || !article.featuredImage) {
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        }
+
+        const featured = String(article.featuredImage).trim();
+
+        // If Base64 Image (e.g. data:image/jpeg;base64,... or raw base64 data)
+        if (
+          featured.startsWith("data:") ||
+          (!featured.startsWith("http://") && !featured.startsWith("https://") && !featured.startsWith("/"))
+        ) {
+          let mimeType = "image/jpeg";
+          let base64Data = featured;
+
+          const match = featured.match(/^data:([^;]+);base64,(.+)$/s);
+          if (match) {
+            mimeType = match[1] || "image/jpeg";
+            base64Data = match[2];
+          }
+
+          try {
+            const imageBuffer = Buffer.from(base64Data, "base64");
+            if (imageBuffer.length > 0) {
+              res.set({
+                "Content-Type": mimeType,
+                "Content-Length": imageBuffer.length.toString(),
+                "Cache-Control": "public, max-age=86400, s-maxage=604800",
+                "Access-Control-Allow-Origin": "*",
+                "Accept-Ranges": "bytes"
+              });
+              return res.status(200).send(imageBuffer);
+            }
+          } catch (e) {
+            console.error("[Image Endpoint] Base64 decode error:", e);
+          }
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        }
+
+        // If absolute HTTPS or HTTP URL (e.g. Unsplash, external storage)
+        if (featured.startsWith("https://") || featured.startsWith("http://")) {
+          return res.redirect(302, featured);
+        }
+
+        // If local relative asset path
+        if (featured.startsWith("/")) {
+          return res.redirect(302, `${baseUrl}${featured}`);
+        }
+
+        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+      } catch (err) {
+        console.error("[Image Endpoint Error]", err);
+        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+      }
+    }
+  );
+
+  app.get("/api/articles/:idOrSlug", async (req, res) => {
     const { idOrSlug } = req.params;
-    const found = inMemoryDb.news.find((a: any) => a.id === idOrSlug || a.slug === idOrSlug);
+    const found = await findArticleAsync(idOrSlug);
     if (found) {
       found.views = (found.views || 0) + 1;
       saveDatabaseToDisk();
@@ -474,18 +588,401 @@ async function startServer() {
     });
   });
 
+  // --- DYNAMIC SERVER-SIDE OPEN GRAPH & SOCIAL PREVIEW GENERATOR ---
+  const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&h=630&fit=crop&q=80";
+
+  function getBaseUrl(req: express.Request): string {
+    const rawForwardedHost = req.headers["x-forwarded-host"];
+    const rawHost = rawForwardedHost || req.headers.host || req.get("host") || "";
+    const host = Array.isArray(rawHost) ? rawHost[0] : String(rawHost).split(",")[0].trim();
+
+    const forwardedProto = req.headers["x-forwarded-proto"];
+    const proto = typeof forwardedProto === "string"
+      ? forwardedProto.split(",")[0].trim()
+      : req.protocol || "https";
+
+    if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("0.0.0.0")) {
+      const isCustomDomain = host.includes("trikaldarshansamachar.com");
+      const effectiveProto = isCustomDomain ? "https" : proto;
+      return `${effectiveProto}://${host}`.replace(/\/+$/, "");
+    }
+
+    if (process.env.APP_URL && process.env.APP_URL.trim() !== "") {
+      return process.env.APP_URL.trim().replace(/\/+$/, "");
+    }
+
+    const isLocal = host.includes("localhost") || host.includes("127.0.0.1") || host.includes("0.0.0.0");
+    const effectiveProto = isLocal ? proto : "https";
+    const fallbackHost = host || "trikaldarshansamachar.com";
+
+    return `${effectiveProto}://${fallbackHost}`.replace(/\/+$/, "");
+  }
+
+  function resolveArticleImageUrl(article: any, baseUrl: string): string {
+    if (!article) return DEFAULT_FALLBACK_IMAGE;
+
+    const rawImg = article.featuredImage;
+    if (!rawImg || typeof rawImg !== "string") {
+      return DEFAULT_FALLBACK_IMAGE;
+    }
+
+    const trimmed = rawImg.trim();
+    if (!trimmed) {
+      return DEFAULT_FALLBACK_IMAGE;
+    }
+
+    const articleKey = encodeURIComponent(article.slug || article.id);
+
+    // If Base64 or non-URL data, point to our public binary image endpoint
+    if (
+      trimmed.startsWith("data:") ||
+      (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/"))
+    ) {
+      return `${baseUrl}/api/articles/${articleKey}/image.jpg`;
+    }
+
+    // If already absolute HTTPS URL
+    if (trimmed.startsWith("https://")) {
+      return trimmed;
+    }
+
+    // If HTTP, upgrade to HTTPS if not local
+    if (trimmed.startsWith("http://")) {
+      if (!trimmed.includes("localhost") && !trimmed.includes("127.0.0.1")) {
+        return trimmed.replace(/^http:\/\//i, "https://");
+      }
+      return trimmed;
+    }
+
+    // Relative asset path
+    const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    const cleanBase = baseUrl.replace(/\/+$/, "");
+    return `${cleanBase}${cleanPath}`;
+  }
+
+  async function findArticleAsync(idOrSlug: string): Promise<any> {
+    if (!idOrSlug) return null;
+    const raw = idOrSlug.trim().replace(/\/+$/, "");
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw).trim();
+    } catch {}
+
+    const lowerRaw = raw.toLowerCase();
+    const lowerDecoded = decoded.toLowerCase();
+
+    // 1. Check inMemoryDb first (fastest)
+    let found = inMemoryDb.news.find((a: any) => {
+      if (!a) return false;
+      const aId = String(a.id || "").trim();
+      const aSlug = String(a.slug || "").trim();
+      return (
+        aId === raw ||
+        aSlug === raw ||
+        aId === decoded ||
+        aSlug === decoded ||
+        aId.toLowerCase() === lowerRaw ||
+        aSlug.toLowerCase() === lowerRaw ||
+        aId.toLowerCase() === lowerDecoded ||
+        aSlug.toLowerCase() === lowerDecoded
+      );
+    });
+
+    if (found) return found;
+
+    // 2. Direct Firestore lookup (in case memory hasn't synced yet)
+    try {
+      // Try by document ID
+      const directDoc = await getDoc(doc(firestoreDb, "news", raw));
+      if (directDoc.exists()) {
+        const data = directDoc.data();
+        if (data) {
+          inMemoryDb.news.unshift(data);
+          return data;
+        }
+      }
+
+      if (decoded !== raw) {
+        const directDecodedDoc = await getDoc(doc(firestoreDb, "news", decoded));
+        if (directDecodedDoc.exists()) {
+          const data = directDecodedDoc.data();
+          if (data) {
+            inMemoryDb.news.unshift(data);
+            return data;
+          }
+        }
+      }
+
+      // Try by slug field
+      const q1 = query(collection(firestoreDb, "news"), where("slug", "==", raw));
+      const snap1 = await getDocs(q1);
+      if (!snap1.empty) {
+        const data = snap1.docs[0].data();
+        inMemoryDb.news.unshift(data);
+        return data;
+      }
+
+      if (decoded !== raw) {
+        const q2 = query(collection(firestoreDb, "news"), where("slug", "==", decoded));
+        const snap2 = await getDocs(q2);
+        if (!snap2.empty) {
+          const data = snap2.docs[0].data();
+          inMemoryDb.news.unshift(data);
+          return data;
+        }
+      }
+
+      // If exact queries didn't match, fetch all news docs from Firestore and search
+      const fullSnap = await getDocs(collection(firestoreDb, "news"));
+      if (!fullSnap.empty) {
+        for (const d of fullSnap.docs) {
+          const data = d.data();
+          if (data) {
+            const aId = String(data.id || "").trim();
+            const aSlug = String(data.slug || "").trim();
+            const aTitle = String(data.title || "").trim();
+            if (
+              aId === raw || aSlug === raw || aId === decoded || aSlug === decoded ||
+              aId.toLowerCase() === lowerRaw || aSlug.toLowerCase() === lowerRaw ||
+              aId.toLowerCase() === lowerDecoded || aSlug.toLowerCase() === lowerDecoded ||
+              aTitle.toLowerCase().includes(lowerDecoded) ||
+              (decoded.length > 5 && aSlug.toLowerCase().includes(lowerDecoded.substring(0, 20)))
+            ) {
+              inMemoryDb.news.unshift(data);
+              return data;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[Firestore Search] Query error:", err);
+    }
+
+    // 3. Check local database.json file
+    if (fs.existsSync(DB_FILE)) {
+      try {
+        const rawJson = fs.readFileSync(DB_FILE, "utf-8");
+        const parsed = JSON.parse(rawJson);
+        if (parsed && Array.isArray(parsed.news)) {
+          found = parsed.news.find((a: any) => {
+            if (!a) return false;
+            const aId = String(a.id || "").trim();
+            const aSlug = String(a.slug || "").trim();
+            return (
+              aId === raw ||
+              aSlug === raw ||
+              aId === decoded ||
+              aSlug === decoded ||
+              aId.toLowerCase() === lowerRaw ||
+              aSlug.toLowerCase() === lowerRaw ||
+              aId.toLowerCase() === lowerDecoded ||
+              aSlug.toLowerCase() === lowerDecoded
+            );
+          });
+          if (found) {
+            inMemoryDb.news = parsed.news;
+            return found;
+          }
+        }
+      } catch {}
+    }
+
+    return null;
+  }
+
+  function escapeHtml(str: string | undefined | null): string {
+    if (!str) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function cleanPlainText(str: string | undefined | null, maxLength: number = 200): string {
+    if (!str) return "";
+    const cleaned = String(str)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (cleaned.length <= maxLength) return cleaned;
+    return cleaned.substring(0, maxLength).trim() + "...";
+  }
+
+  interface PageMeta {
+    title: string;
+    description: string;
+    url: string;
+    image: string;
+    type: "article" | "website";
+    author?: string;
+    publishedTime?: string;
+    section?: string;
+  }
+
+  function injectMetaTags(html: string, meta: PageMeta): string {
+    let cleaned = html
+      .replace(/<title>[\s\S]*?<\/title>/gi, "")
+      .replace(/<meta\s+name=["']description["'][\s\S]*?>/gi, "")
+      .replace(/<link\s+rel=["']canonical["'][\s\S]*?>/gi, "")
+      .replace(/<meta\s+property=["']og:[^"']*["'][\s\S]*?>/gi, "")
+      .replace(/<meta\s+property=["']article:[^"']*["'][\s\S]*?>/gi, "")
+      .replace(/<meta\s+name=["']twitter:[^"']*["'][\s\S]*?>/gi, "");
+
+    const imageType = meta.image.endsWith(".png") ? "image/png" : meta.image.endsWith(".webp") ? "image/webp" : "image/jpeg";
+
+    const metaBlock = `
+    <!-- Dynamic Server-Rendered Social & Open Graph Metadata for WhatsApp / Facebook / Twitter -->
+    <title>${escapeHtml(meta.title)}</title>
+    <meta name="description" content="${escapeHtml(meta.description)}" />
+    <link rel="canonical" href="${escapeHtml(meta.url)}" />
+
+    <!-- Open Graph / WhatsApp Preview Tags -->
+    <meta property="og:type" content="${meta.type}" />
+    <meta property="og:site_name" content="त्रिकाल दर्शन समाचार" />
+    <meta property="og:title" content="${escapeHtml(meta.title)}" />
+    <meta property="og:description" content="${escapeHtml(meta.description)}" />
+    <meta property="og:url" content="${escapeHtml(meta.url)}" />
+    <meta property="og:image" content="${escapeHtml(meta.image)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(meta.image)}" />
+    <meta property="og:image:type" content="${imageType}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="hi_IN" />
+    ${meta.publishedTime ? `<meta property="article:published_time" content="${escapeHtml(meta.publishedTime)}" />` : ""}
+    ${meta.author ? `<meta property="article:author" content="${escapeHtml(meta.author)}" />` : ""}
+    ${meta.section ? `<meta property="article:section" content="${escapeHtml(meta.section)}" />` : ""}
+
+    <!-- Twitter / X Card Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(meta.title)}" />
+    <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
+    <meta name="twitter:image" content="${escapeHtml(meta.image)}" />
+`;
+
+    if (cleaned.includes("</head>")) {
+      return cleaned.replace("</head>", `${metaBlock}\n  </head>`);
+    } else if (cleaned.includes("<head>")) {
+      return cleaned.replace("<head>", `<head>\n${metaBlock}`);
+    }
+    return `${metaBlock}\n${cleaned}`;
+  }
+
+  async function handlePageRender(req: express.Request, res: express.Response, vite?: any) {
+    try {
+      const rawPath = req.path || "/";
+      const baseUrl = getBaseUrl(req);
+      let meta: PageMeta;
+
+      // Check if it is an article page: /article/:idOrSlug
+      const articleMatch = rawPath.match(/^\/article\/([^/]+)/i);
+      if (articleMatch) {
+        const idOrSlug = articleMatch[1];
+        const article = await findArticleAsync(idOrSlug);
+        if (article) {
+          const canonicalUrl = `${baseUrl}/article/${encodeURIComponent(article.slug || article.id)}`;
+          const absImageUrl = resolveArticleImageUrl(article, baseUrl);
+          const description = cleanPlainText(
+            article.subtitle || article.summary || article.content,
+            180
+          ) || "सत्य की त्रिकाल दृष्टि - पढ़ें पूरी खबर त्रिकाल दर्शन समाचार पर।";
+
+          const articleTitle = article.title ? `${article.title} | त्रिकाल दर्शन समाचार` : "त्रिकाल दर्शन समाचार";
+
+          meta = {
+            type: "article",
+            title: articleTitle,
+            description,
+            url: canonicalUrl,
+            image: absImageUrl,
+            author: article.authorName || article.reporterName || "त्रिकाल दर्शन समाचार",
+            publishedTime: article.publishDate || new Date().toISOString(),
+            section: article.categoryName || "समाचार"
+          };
+        } else {
+          meta = {
+            type: "website",
+            title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि",
+            description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report।",
+            url: `${baseUrl}${rawPath}`,
+            image: DEFAULT_FALLBACK_IMAGE
+          };
+        }
+      } else if (rawPath.startsWith("/category/")) {
+        const catSlug = rawPath.replace("/category/", "").replace(/\/+$/, "").trim().toLowerCase();
+        const cat = inMemoryDb.categories.find((c: any) => c.slug?.toLowerCase() === catSlug || c.id?.toLowerCase() === catSlug);
+        const catName = cat ? cat.nameHindi : "समाचार";
+        meta = {
+          type: "website",
+          title: `${catName} समाचार | त्रिकाल दर्शन समाचार`,
+          description: `त्रिकाल दर्शन समाचार पर पढ़ें ${catName} की ताज़ा और प्रामाणिक ख़बरें। सत्य की त्रिकाल दृष्टि।`,
+          url: `${baseUrl}${rawPath}`,
+          image: DEFAULT_FALLBACK_IMAGE
+        };
+      } else {
+        meta = {
+          type: "website",
+          title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि | Trikal Darshan Samachar",
+          description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report। सत्य की त्रिकाल दृष्टि।",
+          url: `${baseUrl}${rawPath}`,
+          image: DEFAULT_FALLBACK_IMAGE
+        };
+      }
+
+      let templateHtml = "";
+      const isProd = process.env.NODE_ENV === "production";
+      if (isProd) {
+        const distIndex = path.join(process.cwd(), "dist", "index.html");
+        if (fs.existsSync(distIndex)) {
+          templateHtml = fs.readFileSync(distIndex, "utf-8");
+        } else {
+          templateHtml = fs.readFileSync(path.join(process.cwd(), "index.html"), "utf-8");
+        }
+      } else {
+        const devIndex = path.join(process.cwd(), "index.html");
+        templateHtml = fs.readFileSync(devIndex, "utf-8");
+        if (vite) {
+          templateHtml = await vite.transformIndexHtml(req.originalUrl, templateHtml);
+        }
+      }
+
+      const finalHtml = injectMetaTags(templateHtml, meta);
+      res.status(200).set({
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "public, max-age=60, s-maxage=300"
+      }).send(finalHtml);
+    } catch (err) {
+      console.error("[SSR Meta Error]", err);
+      const fallbackPath = process.env.NODE_ENV === "production"
+        ? path.join(process.cwd(), "dist", "index.html")
+        : path.join(process.cwd(), "index.html");
+      res.sendFile(fallbackPath);
+    }
+  }
+
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
+      server: { middlewareMode: true, allowedHosts: true },
+      appType: "custom",
     });
+
     app.use(vite.middlewares);
+
+    app.use(async (req, res, next) => {
+      if (req.path.startsWith("/api/")) return next();
+      if (path.extname(req.path)) return next();
+      await handlePageRender(req, res, vite);
+    });
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+    app.use(express.static(distPath, { index: false }));
+
+    app.use(async (req, res, next) => {
+      if (req.path.startsWith("/api/")) return next();
+      if (path.extname(req.path)) return next();
+      await handlePageRender(req, res);
     });
   }
 
