@@ -30,42 +30,14 @@ import {
 } from '../data/initialData';
 import { FirestoreSyncService } from './firestoreService';
 import { articleMatchesKey, cleanArticleSlug, safeDecodeURIComponent } from '../lib/slugHelper';
-
-const STORAGE_KEYS = {
-  NEWS: 'tds_news_articles_v1',
-  CATEGORIES: 'tds_categories_v1',
-  STATES: 'tds_states_v1',
-  DISTRICTS: 'tds_districts_v1',
-  REPORTERS: 'tds_reporters_v1',
-  APPLICATIONS: 'tds_applications_v1',
-  ID_CARDS: 'tds_id_cards_v1',
-  JOINING_LETTERS: 'tds_joining_letters_v1',
-  ADVERTISEMENTS: 'tds_advertisements_v1',
-  SOCIAL_LINKS: 'tds_social_links_v1',
-  SETTINGS: 'tds_settings_v1',
-  PANCHANG: 'tds_panchang_v1',
-  LAST_SYNC: 'tds_last_sync_timestamp'
-};
+import { storageGet, storageSet, storageRemove, STORAGE_KEYS } from '../lib/storageManager';
 
 function getItem<T>(key: string, defaultValue: T): T {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : defaultValue;
-  } catch (err) {
-    console.warn(`Error reading ${key} from localStorage`, err);
-    return defaultValue;
-  }
+  return storageGet(key, defaultValue);
 }
 
 function setItem<T>(key: string, value: T, notify = true): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-    if (notify && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('tds_data_updated', { detail: { key } }));
-    }
-  } catch (err) {
-    console.error(`Error saving ${key} to localStorage`, err);
-  }
+  storageSet(key, value, notify);
 }
 
 async function apiCall(endpoint: string, method: string = 'GET', body?: any): Promise<any> {
@@ -159,7 +131,10 @@ export class NewsService {
       if (!res || !res.success || !res.data) return false;
 
       const serverData = res.data;
-      const lastLocalSync = Number(localStorage.getItem(STORAGE_KEYS.LAST_SYNC) || '0');
+      let lastLocalSync = 0;
+      try {
+        lastLocalSync = Number(localStorage.getItem(STORAGE_KEYS.LAST_SYNC) || '0');
+      } catch {}
       const localArticles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, []);
 
       const serverUpdated = Number(serverData.lastUpdated || 0);
@@ -186,7 +161,7 @@ export class NewsService {
         if (serverData.settings) setItem(STORAGE_KEYS.SETTINGS, serverData.settings, false);
         if (serverData.panchang) setItem(STORAGE_KEYS.PANCHANG, serverData.panchang, false);
 
-        localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(serverUpdated || Date.now()));
+        try { localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(serverUpdated || Date.now())); } catch {}
         window.dispatchEvent(new CustomEvent('tds_data_updated', { detail: { source: 'server_sync' } }));
         return true;
       }
@@ -214,7 +189,7 @@ export class NewsService {
       };
       const res = await apiCall('/api/data/sync', 'POST', payload);
       if (res?.lastUpdated) {
-        localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(res.lastUpdated));
+        try { localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(res.lastUpdated)); } catch {}
       }
     } catch {
       // Ignore network failures
@@ -505,7 +480,7 @@ export class NewsService {
     }
 
     setItem(STORAGE_KEYS.NEWS, articles);
-    localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now()));
+    try { localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now())); } catch {}
 
     // 1. Save to Cloud Firestore for real-time live synchronization across all browsers/devices
     FirestoreSyncService.saveArticle(targetArticle);
@@ -522,7 +497,7 @@ export class NewsService {
     const articles: NewsArticle[] = getItem(STORAGE_KEYS.NEWS, INITIAL_NEWS);
     const filtered = articles.filter(a => a.id !== id);
     setItem(STORAGE_KEYS.NEWS, filtered);
-    localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now()));
+    try { localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now())); } catch {}
 
     // 1. Delete from Cloud Firestore
     FirestoreSyncService.deleteArticle(id);

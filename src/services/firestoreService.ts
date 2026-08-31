@@ -38,6 +38,7 @@ import {
   INITIAL_SETTINGS,
   INITIAL_PANCHANG
 } from '../data/initialData';
+import { storageSet, STORAGE_KEYS } from '../lib/storageManager';
 
 /**
  * Deeply strips undefined values and ensures pure serializable Firestore objects.
@@ -120,9 +121,9 @@ export class FirestoreSyncService {
             return dateB - dateA;
           });
 
-          // Update local cache
-          localStorage.setItem('tds_news_articles_v1', JSON.stringify(articles));
-          localStorage.setItem('tds_last_sync_timestamp', String(Date.now()));
+          // Update local and in-memory cache safely
+          storageSet(STORAGE_KEYS.NEWS, articles, false, 'firestore_news');
+          try { localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now())); } catch {}
 
           // Notify direct subscribers
           this.articleSubscribers.forEach((cb) => {
@@ -145,7 +146,7 @@ export class FirestoreSyncService {
         (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data() as WebsiteSettings;
-            localStorage.setItem('tds_settings_v1', JSON.stringify(data));
+            storageSet(STORAGE_KEYS.SETTINGS, data, false, 'firestore_settings');
             
             this.settingsSubscribers.forEach((cb) => {
               try { cb(data); } catch (e) { console.error('Settings subscriber error:', e); }
@@ -172,7 +173,7 @@ export class FirestoreSyncService {
               if (data && data.id) categories.push(data);
             });
             categories.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-            localStorage.setItem('tds_categories_v1', JSON.stringify(categories));
+            storageSet(STORAGE_KEYS.CATEGORIES, categories, false, 'firestore_categories');
             
             this.categorySubscribers.forEach((cb) => {
               try { cb(categories); } catch (e) { console.error('Category subscriber error:', e); }
@@ -198,7 +199,7 @@ export class FirestoreSyncService {
               const data = d.data() as Advertisement;
               if (data && data.id) ads.push(data);
             });
-            localStorage.setItem('tds_advertisements_v1', JSON.stringify(ads));
+            storageSet(STORAGE_KEYS.ADVERTISEMENTS, ads, false, 'firestore_advertisements');
             
             this.advertisementSubscribers.forEach((cb) => {
               try { cb(ads); } catch (e) { console.error('Ads subscriber error:', e); }
@@ -224,7 +225,7 @@ export class FirestoreSyncService {
               const data = d.data() as Reporter;
               if (data && data.id) reps.push(data);
             });
-            localStorage.setItem('tds_reporters_v1', JSON.stringify(reps));
+            storageSet(STORAGE_KEYS.REPORTERS, reps, false, 'firestore_reporters');
             
             this.reporterSubscribers.forEach((cb) => {
               try { cb(reps); } catch (e) { console.error('Reporter subscriber error:', e); }
@@ -250,7 +251,7 @@ export class FirestoreSyncService {
               const data = d.data() as MemberApplication;
               if (data && data.id) apps.push(data);
             });
-            localStorage.setItem('tds_applications_v1', JSON.stringify(apps));
+            storageSet(STORAGE_KEYS.APPLICATIONS, apps, false, 'firestore_applications');
             
             this.applicationSubscribers.forEach((cb) => {
               try { cb(apps); } catch (e) { console.error('Application subscriber error:', e); }
@@ -276,7 +277,7 @@ export class FirestoreSyncService {
               const data = d.data() as JoiningLetter;
               if (data && data.id) letters.push(data);
             });
-            localStorage.setItem('tds_joining_letters_v1', JSON.stringify(letters));
+            storageSet(STORAGE_KEYS.JOINING_LETTERS, letters, false, 'firestore_joining_letters');
             
             this.letterSubscribers.forEach((cb) => {
               try { cb(letters); } catch (e) { console.error('Letters subscriber error:', e); }

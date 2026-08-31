@@ -222,11 +222,16 @@ async function startServer() {
         const article = await findArticleAsync(idOrSlug);
         const baseUrl = getBaseUrl(req);
 
-        if (!article || !article.featuredImage) {
+        if (!article) {
           return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
         }
 
-        const featured = String(article.featuredImage).trim();
+        const rawFeatured = article.featuredImage || article.image || article.imageUrl || article.thumbnail || (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+        if (!rawFeatured) {
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        }
+
+        const featured = String(rawFeatured).trim();
 
         // If Base64 Image (e.g. data:image/jpeg;base64,... or raw base64 data)
         if (
@@ -621,7 +626,7 @@ async function startServer() {
   function resolveArticleImageUrl(article: any, baseUrl: string): string {
     if (!article) return DEFAULT_FALLBACK_IMAGE;
 
-    const rawImg = article.featuredImage;
+    const rawImg = article.featuredImage || article.image || article.imageUrl || article.thumbnail || (Array.isArray(article.galleryImages) && article.galleryImages[0]);
     if (!rawImg || typeof rawImg !== "string") {
       return DEFAULT_FALLBACK_IMAGE;
     }
@@ -849,6 +854,7 @@ async function startServer() {
     <meta property="og:image:type" content="${imageType}" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="${escapeHtml(meta.title)}" />
     <meta property="og:locale" content="hi_IN" />
     ${meta.publishedTime ? `<meta property="article:published_time" content="${escapeHtml(meta.publishedTime)}" />` : ""}
     ${meta.author ? `<meta property="article:author" content="${escapeHtml(meta.author)}" />` : ""}
@@ -859,6 +865,14 @@ async function startServer() {
     <meta name="twitter:title" content="${escapeHtml(meta.title)}" />
     <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
     <meta name="twitter:image" content="${escapeHtml(meta.image)}" />
+    <meta name="twitter:image:src" content="${escapeHtml(meta.image)}" />
+    <meta name="twitter:image:alt" content="${escapeHtml(meta.title)}" />
+
+    <!-- Schema.org / Search Engine Direct Tags -->
+    <meta itemprop="name" content="${escapeHtml(meta.title)}" />
+    <meta itemprop="description" content="${escapeHtml(meta.description)}" />
+    <meta itemprop="image" content="${escapeHtml(meta.image)}" />
+    <link rel="image_src" href="${escapeHtml(meta.image)}" />
 `;
 
     if (cleaned.includes("</head>")) {

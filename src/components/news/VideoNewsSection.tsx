@@ -143,11 +143,16 @@ export const VideoNewsSection: React.FC<VideoNewsSectionProps> = ({
               <span>संवाददाता: {activeVideo.reporterName || activeVideo.authorName}</span>
               <button
                 onClick={() => {
-                  if (navigator.share) {
+                  const shareUrl = `${window.location.origin}/article/${encodeURIComponent(activeVideo.slug || activeVideo.id)}`;
+                  if (typeof navigator !== 'undefined' && navigator.share) {
                     navigator.share({
                       title: activeVideo.title,
-                      url: window.location.href
-                    });
+                      text: `${activeVideo.title}\n\nदेखें त्रिकाल दर्शन समाचार पर:`,
+                      url: shareUrl
+                    }).catch(() => {});
+                  } else {
+                    navigator.clipboard.writeText(shareUrl);
+                    alert('वीडियो समाचार लिंक कॉपी हो गया!');
                   }
                 }}
                 className="flex items-center gap-1 text-[#D71920] hover:underline font-bold cursor-pointer"
