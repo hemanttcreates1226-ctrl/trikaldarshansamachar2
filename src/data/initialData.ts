@@ -67,6 +67,7 @@ export const INITIAL_DISTRICTS: District[] = [
   { id: 'dt-bhp', stateId: 'st-mp', nameHindi: 'भोपाल', nameEnglish: 'Bhopal', slug: 'bhopal', isEnabled: true },
   { id: 'dt-jbp', stateId: 'st-mp', nameHindi: 'जबलपुर', nameEnglish: 'Jabalpur', slug: 'jabalpur', isEnabled: true },
   { id: 'dt-gwl', stateId: 'st-mp', nameHindi: 'ग्वालियर', nameEnglish: 'Gwalior', slug: 'gwalior', isEnabled: true },
+  { id: 'dt-panna', stateId: 'st-mp', nameHindi: 'पन्ना', nameEnglish: 'Panna', slug: 'panna', isEnabled: true },
   { id: 'dt-rpr', stateId: 'st-cg', nameHindi: 'रायपुर', nameEnglish: 'Raipur', slug: 'raipur', isEnabled: true },
   { id: 'dt-lko', stateId: 'st-up', nameHindi: 'लखनऊ', nameEnglish: 'Lucknow', slug: 'lucknow', isEnabled: true },
   { id: 'dt-jpr', stateId: 'st-rj', nameHindi: 'जयपुर', nameEnglish: 'Jaipur', slug: 'jaipur', isEnabled: true },
@@ -124,6 +125,40 @@ export const INITIAL_REPORTERS: Reporter[] = [
 ];
 
 export const INITIAL_NEWS: NewsArticle[] = [
+  {
+    id: 'news-panna-cyber-fraud',
+    title: 'पन्ना में साइबर फ्रॉड: युवक से 3 लाख की ऑनलाइन ठगी, पुलिस ने त्वरित कार्रवाई कर खाते फ्रीज कराए',
+    subtitle: 'लॉटरी और फर्जी बैंक अधिकारी बनकर दिया था वारदात को अंजाम, पुलिस ने 24 घंटे में सुरक्षित कराए पैसे',
+    content: `पन्ना (त्रिकाल दर्शन ब्यूरो): पन्ना जिले में साइबर अपराधियों के एक नए गिरोह द्वारा स्थानीय युवक को निशाना बनाकर 3 लाख रुपये की ऑनलाइन ठगी का सनसनीखेज मामला सामने आया है। पीड़ित को अज्ञात नंबर से कॉल कर बैंक केवाईसी अपडेट करने और लॉटरी इनाम जीतने का झांसा देकर गोपनीय ओटीपी प्राप्त कर लिया गया था।
+
+मामले की सूचना मिलते ही पन्ना साइबर सेल और स्थानीय कोतवाली पुलिस ने त्वरित एक्शन लेते हुए नेशनल साइबर क्राइम रिपोर्टिंग पोर्टल के जरिए संबंधित बैंक खातों को तत्काल प्रभाव से होल्ड करवा दिया।
+
+पुलिस अधीक्षक के अनुसार साइबर टीम ने तत्परता दिखाते हुए ट्रांसफर हुई राशि में से 2.85 लाख रुपये फ्रीज करा लिए हैं और आरोपियों की लोकेशन ट्रेस की जा रही है।
+
+साइबर सुरक्षा सलाह:
+1. किसी भी अनजान व्यक्ति के साथ अपना बैंक ओटीपी, पिन या पासवर्ड कभी साझा न करें।
+2. फर्जी लॉटरी, वर्क फ्रॉम होम या लोन अप्रूवल के प्रलोभन में न आएं।
+3. साइबर धोखाधड़ी होने पर तत्काल राष्ट्रीय हेल्पलाइन नंबर 1930 पर शिकायत दर्ज कराएं।`,
+    summary: 'पन्ना में साइबर ठगों ने युवक से की 3 लाख की ठगी, पन्ना साइबर सेल ने तत्परता दिखाते हुए खाते कराए फ्रीज।',
+    featuredImage: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=1200&h=630&fit=crop&q=80',
+    categorySlug: 'crime',
+    categoryName: 'अपराध',
+    stateId: 'st-mp',
+    stateName: 'मध्य प्रदेश',
+    districtId: 'dt-panna',
+    districtName: 'पन्ना',
+    cityName: 'पन्ना शहर',
+    reporterId: 'rep-1',
+    reporterName: 'राजकमल पांडेय',
+    authorName: 'राजकमल पांडेय (ब्यूरो चीफ)',
+    tags: ['पन्ना', 'साइबर फ्रॉड', 'क्राइम', 'मध्य प्रदेश पुलिस', 'अलर्ट'],
+    views: 9450,
+    isBreaking: true,
+    isFeatured: true,
+    publishDate: '2026-08-31T06:00:00Z',
+    status: 'published',
+    slug: 'panna-cyber-fraud'
+  },
   {
     id: 'news-1',
     title: 'उज्जैन में विकास कार्यों को लेकर प्रशासन ने जारी किया नया मास्टर प्लान, शिप्रा तट का होगा कायाकल्प',

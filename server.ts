@@ -175,8 +175,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "25mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
   // --- API ENDPOINTS ---
 
@@ -648,6 +648,42 @@ async function startServer() {
     return `${effectiveProto}://${fallbackHost}`.replace(/\/+$/, "");
   }
 
+  const HINDI_WORD_MAP: Record<string, string> = {
+    "समाचार": "samachar", "खबर": "khabar", "पन्ना": "panna", "उज्जैन": "ujjain",
+    "इंदौर": "indore", "भोपाल": "bhopal", "ग्वालियर": "gwalior", "जबलपुर": "jabalpur",
+    "मध्य": "madhya", "प्रदेश": "pradesh", "साइबर": "cyber", "फ्रॉड": "fraud",
+    "क्राइम": "crime", "पुलिस": "police", "महाकाल": "mahakal", "मंदिर": "mandir",
+    "आरती": "aarti", "योजना": "yojana", "किसान": "kisan", "सरकार": "sarkar",
+    "शिक्षा": "shiksha", "बोर्ड": "board", "परीक्षा": "pariksha", "मौसम": "weather",
+    "बारिश": "barish", "अलर्ट": "alert", "हादसा": "hadsa", "दुर्घटना": "durghatna",
+    "बजट": "budget", "चुनाव": "chunav", "विकास": "vikas"
+  };
+
+  function normalizeText(str: string): string {
+    if (!str) return "";
+    let s = str.toLowerCase();
+    try { s = decodeURIComponent(s); } catch {}
+    return s
+      .replace(/\.(jpg|jpeg|png|webp|html)$/i, "")
+      .replace(/[—–\-_\/+,.:;!|#@$%^&*()?[\]{}<>'"“”‘’]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function transliterateToAscii(hindiText: string): string {
+    if (!hindiText) return "";
+    let str = hindiText.trim();
+    for (const [hindi, eng] of Object.entries(HINDI_WORD_MAP)) {
+      str = str.replace(new RegExp(hindi, "g"), ` ${eng} `);
+    }
+    return str
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
   function resolveArticleImageUrl(article: any, baseUrl: string): string {
     if (!article) return DEFAULT_FALLBACK_IMAGE;
 
@@ -674,14 +710,15 @@ async function startServer() {
       return trimmed;
     }
 
-    // For Base64 uploaded images, serve via clean ASCII binary endpoint
-    const cleanId = String(article.id || article.slug || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
-    return `${baseUrl}/img/${cleanId}.jpg`;
+    // For Base64 uploaded images or relative images, serve via dedicated binary image endpoint
+    const key = article.id || article.slug || "news";
+    const safeKey = encodeURIComponent(String(key).trim());
+    return `${baseUrl}/img/${safeKey}.jpg`;
   }
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
     if (!idOrSlug) return null;
-    let raw = idOrSlug.trim().replace(/\.(jpg|jpeg|png|webp|html)$/i, "").replace(/\/+$/, "");
+    let raw = String(idOrSlug).trim().replace(/\.(jpg|jpeg|png|webp|html)$/i, "").replace(/\/+$/, "");
     let decoded = raw;
     try {
       decoded = decodeURIComponent(raw).trim();
@@ -689,31 +726,77 @@ async function startServer() {
 
     const lowerRaw = raw.toLowerCase();
     const lowerDecoded = decoded.toLowerCase();
+    const normSearch = normalizeText(decoded);
+    const translitSearch = transliterateToAscii(decoded);
+    const searchWords = normSearch.split(" ").filter((w) => w.length >= 2);
 
-    // 1. Check inMemoryDb first (fastest)
-    let found = inMemoryDb.news.find((a: any) => {
+    const matchArticle = (a: any): boolean => {
       if (!a) return false;
       const aId = String(a.id || "").trim();
       const aSlug = String(a.slug || "").trim();
       const aTitle = String(a.title || "").trim();
-      return (
-        aId === raw ||
-        aSlug === raw ||
-        aId === decoded ||
-        aSlug === decoded ||
-        aId.toLowerCase() === lowerRaw ||
-        aSlug.toLowerCase() === lowerRaw ||
-        aId.toLowerCase() === lowerDecoded ||
-        aSlug.toLowerCase() === lowerDecoded ||
-        (aTitle && aTitle.toLowerCase().includes(lowerDecoded))
-      );
-    });
+      const aIdLower = aId.toLowerCase();
+      const aSlugLower = aSlug.toLowerCase();
+      const aTitleLower = aTitle.toLowerCase();
 
+      // Exact ID or Slug
+      if (aId === raw || aSlug === raw || aId === decoded || aSlug === decoded) return true;
+      if (aIdLower === lowerRaw || aSlugLower === lowerRaw || aIdLower === lowerDecoded || aSlugLower === lowerDecoded) return true;
+
+      // Clean ID without prefix (e.g. news-panna-cyber-fraud -> panna-cyber-fraud)
+      const cleanId = aIdLower.replace(/^news-|^art-/, "");
+      if (cleanId === lowerRaw || cleanId === lowerDecoded || lowerRaw.includes(cleanId) || lowerDecoded.includes(cleanId)) return true;
+
+      // Normalized match
+      const normSlug = normalizeText(aSlug);
+      const normTitle = normalizeText(aTitle);
+      if (normSlug && normSearch && (normSlug === normSearch || normSlug.includes(normSearch) || normSearch.includes(normSlug))) return true;
+      if (normTitle && normSearch && (normTitle === normSearch || normTitle.includes(normSearch) || normSearch.includes(normTitle))) return true;
+
+      // Transliterated match
+      if (translitSearch && translitSearch.length >= 3) {
+        const aTranslit = transliterateToAscii(aTitle);
+        if (aTranslit && (aTranslit.includes(translitSearch) || translitSearch.includes(aTranslit))) return true;
+        if (aSlugLower.includes(translitSearch) || translitSearch.includes(aSlugLower)) return true;
+      }
+
+      // Keyword token overlap scoring
+      if (searchWords.length >= 2) {
+        let matchCount = 0;
+        for (const w of searchWords) {
+          if (normTitle.includes(w) || normSlug.includes(w) || aTitleLower.includes(w)) {
+            matchCount++;
+          }
+        }
+        if (matchCount >= 2 && matchCount >= Math.ceil(searchWords.length * 0.6)) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    // 1. Check inMemoryDb first (fastest)
+    let found = inMemoryDb.news.find(matchArticle);
     if (found) return found;
 
-    // 2. Direct Firestore lookup (in case memory hasn't synced yet)
+    // 2. Check local database.json file
+    if (fs.existsSync(DB_FILE)) {
+      try {
+        const rawJson = fs.readFileSync(DB_FILE, "utf-8");
+        const parsed = JSON.parse(rawJson);
+        if (parsed && Array.isArray(parsed.news)) {
+          found = parsed.news.find(matchArticle);
+          if (found) {
+            inMemoryDb.news = parsed.news;
+            return found;
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Direct Firestore lookup (with error catch so quota exhaustion does not throw)
     try {
-      // Try by document ID
       const directDoc = await getDoc(doc(firestoreDb, "news", raw));
       if (directDoc.exists()) {
         const data = directDoc.data();
@@ -734,7 +817,6 @@ async function startServer() {
         }
       }
 
-      // Try by slug field
       const q1 = query(collection(firestoreDb, "news"), where("slug", "==", raw));
       const snap1 = await getDocs(q1);
       if (!snap1.empty) {
@@ -753,59 +835,18 @@ async function startServer() {
         }
       }
 
-      // If exact queries didn't match, fetch all news docs from Firestore and search
       const fullSnap = await getDocs(collection(firestoreDb, "news"));
       if (!fullSnap.empty) {
         for (const d of fullSnap.docs) {
           const data = d.data();
-          if (data) {
-            const aId = String(data.id || "").trim();
-            const aSlug = String(data.slug || "").trim();
-            const aTitle = String(data.title || "").trim();
-            if (
-              aId === raw || aSlug === raw || aId === decoded || aSlug === decoded ||
-              aId.toLowerCase() === lowerRaw || aSlug.toLowerCase() === lowerRaw ||
-              aId.toLowerCase() === lowerDecoded || aSlug.toLowerCase() === lowerDecoded ||
-              (aTitle && aTitle.toLowerCase().includes(lowerDecoded)) ||
-              (decoded.length > 5 && aSlug.toLowerCase().includes(lowerDecoded.substring(0, 20)))
-            ) {
-              inMemoryDb.news.unshift(data);
-              return data;
-            }
+          if (data && matchArticle(data)) {
+            inMemoryDb.news.unshift(data);
+            return data;
           }
         }
       }
-    } catch (err) {
-      console.warn("[Firestore Search] Query error:", err);
-    }
-
-    // 3. Check local database.json file
-    if (fs.existsSync(DB_FILE)) {
-      try {
-        const rawJson = fs.readFileSync(DB_FILE, "utf-8");
-        const parsed = JSON.parse(rawJson);
-        if (parsed && Array.isArray(parsed.news)) {
-          found = parsed.news.find((a: any) => {
-            if (!a) return false;
-            const aId = String(a.id || "").trim();
-            const aSlug = String(a.slug || "").trim();
-            return (
-              aId === raw ||
-              aSlug === raw ||
-              aId === decoded ||
-              aSlug === decoded ||
-              aId.toLowerCase() === lowerRaw ||
-              aSlug.toLowerCase() === lowerRaw ||
-              aId.toLowerCase() === lowerDecoded ||
-              aSlug.toLowerCase() === lowerDecoded
-            );
-          });
-          if (found) {
-            inMemoryDb.news = parsed.news;
-            return found;
-          }
-        }
-      } catch {}
+    } catch (err: any) {
+      console.warn("[Firestore Search] Query fallback:", err?.message || err);
     }
 
     return null;

@@ -104,6 +104,9 @@ export class NewsService {
     // 2. Initial background sync from server
     this.syncFromServer(true);
 
+    // 3. Immediately push any local articles to server so server SSR & social crawlers have them
+    this.pushSnapshotToServer();
+
     // Background periodic poll every 5 seconds
     this.syncInterval = setInterval(() => {
       this.syncFromServer();
