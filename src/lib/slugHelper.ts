@@ -3,6 +3,111 @@
  * and social media share links (WhatsApp, Facebook, Twitter, Telegram).
  */
 
+const HINDI_CHAR_MAP: Record<string, string> = {
+  'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo', 'ऋ': 'ri',
+  'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'अं': 'an', 'अः': 'ah',
+  'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
+  'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
+  'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
+  'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+  'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+  'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh', 'ष': 'sh', 'स': 's', 'ह': 'h',
+  'क्ष': 'ksh', 'त्र': 'tr', 'ज्ञ': 'gy',
+  'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
+  'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', 'ँ': 'n', '्': '',
+  '०': '0', '१': '1', '२': '2', '३': '3', '४': '4', '५': '5', '६': '6', '७': '7', '८': '8', '९': '9'
+};
+
+const COMMON_HINDI_WORDS: Record<string, string> = {
+  'समाचार': 'samachar',
+  'खबर': 'khabar',
+  'पन्ना': 'panna',
+  'उज्जैन': 'ujjain',
+  'इंदौर': 'indore',
+  'भोपाल': 'bhopal',
+  'ग्वालियर': 'gwalior',
+  'जबलपुर': 'jabalpur',
+  'मध्य': 'madhya',
+  'प्रदेश': 'pradesh',
+  'साइबर': 'cyber',
+  'फ्रॉड': 'fraud',
+  'क्राइम': 'crime',
+  'पुलिस': 'police',
+  'महाकाल': 'mahakal',
+  'मंदिर': 'mandir',
+  'आरती': 'aarti',
+  'योजना': 'yojana',
+  'किसान': 'kisan',
+  'सरकार': 'sarkar',
+  'शिक्षा': 'shiksha',
+  'बोर्ड': 'board',
+  'परीक्षा': 'pariksha',
+  'मौसम': 'weather',
+  'बारिश': 'barish',
+  'अलर्ट': 'alert',
+  'हादसा': 'hadsa',
+  'दुर्घटना': 'durghatna',
+  'बजट': 'budget',
+  'चुनाव': 'chunav',
+  'विकास': 'vikas'
+};
+
+/**
+ * Transliterates Hindi/Devanagari text to a clean, readable ASCII slug
+ * Example: "पन्ना में साइबर फ्रॉड" -> "panna-cyber-fraud"
+ */
+export function transliterateHindiToEnglish(hindiText: string): string {
+  if (!hindiText) return '';
+  let str = hindiText.trim();
+
+  // Replace common Hindi news words first
+  for (const [hindi, eng] of Object.entries(COMMON_HINDI_WORDS)) {
+    str = str.replace(new RegExp(hindi, 'g'), ` ${eng} `);
+  }
+
+  // Replace character by character
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (HINDI_CHAR_MAP[char] !== undefined) {
+      result += HINDI_CHAR_MAP[char];
+    } else if (/[a-zA-Z0-9]/.test(char)) {
+      result += char;
+    } else if (/\s+/.test(char) || char === '-' || char === '_') {
+      result += '-';
+    }
+  }
+
+  // Clean up dashes
+  return result
+    .toLowerCase()
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 60);
+}
+
+/**
+ * Generates a clean, short, human-friendly ASCII slug from article title and ID
+ * Ensures URLs never get corrupted by huge %E0%A4%... percent-encoded characters
+ */
+export function generateCleanSlug(title: string | undefined | null, id?: string): string {
+  const shortId = id ? id.replace(/^news-|^art-/, '').slice(-6) : Math.random().toString(36).slice(2, 7);
+  if (!title) return `art-${shortId}`;
+
+  const transliterated = transliterateHindiToEnglish(title);
+  if (transliterated && transliterated.length >= 3) {
+    return `${transliterated}-${shortId}`;
+  }
+
+  // Fallback to ASCII letters from title if present
+  const asciiTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (asciiTitle && asciiTitle.length >= 3) {
+    return `${asciiTitle.substring(0, 40)}-${shortId}`;
+  }
+
+  return `art-${shortId}`;
+}
+
 export function safeDecodeURIComponent(str: string | undefined | null): string {
   if (!str) return '';
   let result = String(str).trim();
@@ -36,9 +141,40 @@ export function normalizeText(text: string | undefined | null): string {
 export function cleanArticleSlug(slugOrId: string | undefined | null): string {
   if (!slugOrId) return '';
   let cleaned = safeDecodeURIComponent(slugOrId);
-  // Remove leading article/ prefix if passed accidentally
-  cleaned = cleaned.replace(/^\/?(article\/)?/i, '').replace(/\/+$/, '').trim();
+  // Remove leading article/ or n/ or a/ prefix if passed accidentally
+  cleaned = cleaned.replace(/^\/?(article\/|n\/|a\/)?/i, '').replace(/\/+$/, '').trim();
   return cleaned;
+}
+
+/**
+ * Returns a clean, short, shareable URL for WhatsApp, Telegram, SMS, etc.
+ * Uses ASCII-safe slug or ID to prevent long %E0%A4%... URLs
+ */
+export function getArticleShareUrl(article: { id?: string; slug?: string; title?: string }, baseUrl?: string): string {
+  if (!article) return baseUrl || '';
+  const origin = baseUrl
+    ? baseUrl.replace(/\/+$/, '')
+    : (typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com');
+
+  const slug = String(article.slug || '').trim();
+  const id = String(article.id || '').trim();
+
+  // If slug is clean ASCII (contains only a-z, 0-9, dash), use it
+  if (slug && /^[a-z0-9-]+$/i.test(slug)) {
+    return `${origin}/article/${slug}`;
+  }
+
+  // Otherwise, use clean article ID or generated clean slug
+  if (id) {
+    return `${origin}/article/${id}`;
+  }
+
+  if (article.title) {
+    const clean = generateCleanSlug(article.title, id);
+    return `${origin}/article/${clean}`;
+  }
+
+  return `${origin}/article/${id || 'news'}`;
 }
 
 export function articleMatchesKey(article: any, searchKey: string | undefined | null): boolean {
@@ -73,8 +209,13 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
     }
   } catch {}
 
-  // 4. Fallback slug generated from title (if slug was updated or created dynamically)
+  // 4. Match against generated transliteration slug
   if (artTitle) {
+    const transliterated = transliterateHindiToEnglish(artTitle);
+    if (transliterated && normalizedKey.includes(normalizeText(transliterated))) {
+      return true;
+    }
+
     const titleSlug = artTitle
       .toLowerCase()
       .replace(/[^\u0900-\u097F\w\s-]/g, '')
@@ -83,6 +224,13 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
     if (normalizeText(titleSlug) === normalizedKey) {
       return true;
     }
+  }
+
+  // 5. Short ID suffix match (e.g. artId is news-1725... and cleanedKey is art-1725...)
+  const numId = artId.replace(/\D/g, '');
+  const numKey = cleanedKey.replace(/\D/g, '');
+  if (numId && numKey && (numId.endsWith(numKey) || numKey.endsWith(numId))) {
+    return true;
   }
 
   return false;

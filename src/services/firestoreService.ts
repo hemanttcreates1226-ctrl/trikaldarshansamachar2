@@ -9,7 +9,7 @@ import {
   writeBatch,
   Unsubscribe
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import {
   NewsArticle,
   Category,
@@ -40,9 +40,67 @@ import {
 } from '../data/initialData';
 import { storageSet, STORAGE_KEYS } from '../lib/storageManager';
 
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const rawMsg = error instanceof Error ? error.message : String(error);
+  
+  // Non-fatal stream timeout or idle stream cleanup by gRPC/WebChannel
+  if (
+    rawMsg.includes('CANCELLED') ||
+    rawMsg.includes('idle stream') ||
+    rawMsg.includes('the client is offline')
+  ) {
+    return;
+  }
+
+  const errInfo: FirestoreErrorInfo = {
+    error: rawMsg,
+    authInfo: {
+      userId: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
+      emailVerified: auth.currentUser?.emailVerified || null,
+      isAnonymous: auth.currentUser?.isAnonymous || null,
+      tenantId: auth.currentUser?.tenantId || null,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.warn('Firestore Error Info: ', JSON.stringify(errInfo));
+}
+
 /**
- * Deeply strips undefined values and ensures pure serializable Firestore objects.
- * Firestore strictly rejects documents containing `undefined` properties.
+ * Deeply strips undefined values, ensures pure serializable Firestore objects,
+ * and caps excessively large media strings to keep documents strictly within
+ * Firestore's 1MB limit.
  */
 export function cleanForFirestore(obj: any): any {
   if (obj === null || obj === undefined) {
@@ -57,7 +115,12 @@ export function cleanForFirestore(obj: any): any {
     const cleaned: Record<string, any> = {};
     for (const [key, val] of Object.entries(obj)) {
       if (val !== undefined) {
-        cleaned[key] = cleanForFirestore(val);
+        // Prevent storing huge uncompressed media arrays that breach document quota
+        if (key === 'galleryImages' && Array.isArray(val) && val.length > 5) {
+          cleaned[key] = val.slice(0, 5).map(item => cleanForFirestore(item));
+        } else {
+          cleaned[key] = cleanForFirestore(val);
+        }
       }
     }
     return cleaned;
@@ -134,7 +197,7 @@ export class FirestoreSyncService {
           onDataUpdated('firestore_news');
         },
         (error) => {
-          console.warn('Firestore onSnapshot news subscription notice:', error.message);
+          handleFirestoreError(error, OperationType.GET, 'news');
         }
       );
       this.unsubscribers.push(unsubNews);
@@ -156,7 +219,7 @@ export class FirestoreSyncService {
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot settings notice:', error.message);
+          handleFirestoreError(error, OperationType.GET, 'settings/main');
         }
       );
       this.unsubscribers.push(unsubSettings);
@@ -183,7 +246,7 @@ export class FirestoreSyncService {
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot categories notice:', error.message);
+          handleFirestoreError(error, OperationType.GET, 'categories');
         }
       );
       this.unsubscribers.push(unsubCategories);
@@ -209,7 +272,7 @@ export class FirestoreSyncService {
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot ads notice:', error.message);
+          handleFirestoreError(error, OperationType.GET, 'advertisements');
         }
       );
       this.unsubscribers.push(unsubAds);
@@ -235,7 +298,7 @@ export class FirestoreSyncService {
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot reporters notice:', error.message);
+          handleFirestoreError(error, OperationType.GET, 'reporters');
         }
       );
       this.unsubscribers.push(unsubRep);
@@ -261,7 +324,7 @@ export class FirestoreSyncService {
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot applications notice:', error.message);
+          handleFirestoreError(error, OperationType.GET, 'member_applications');
         }
       );
       this.unsubscribers.push(unsubApps);
@@ -287,7 +350,7 @@ export class FirestoreSyncService {
           }
         },
         (error) => {
-          console.warn('Firestore onSnapshot joining letters notice:', error.message);
+          handleFirestoreError(error, OperationType.GET, 'joining_letters');
         }
       );
       this.unsubscribers.push(unsubLetters);
@@ -419,7 +482,7 @@ export class FirestoreSyncService {
       await setDoc(docRef, cleaned, { merge: true });
       console.log(`[Firestore] Article saved successfully: ${article.id}`);
     } catch (err) {
-      console.error('[Firestore] Error saving article to Cloud Firestore:', err);
+      handleFirestoreError(err, OperationType.WRITE, `news/${article.id}`);
     }
   }
 
@@ -429,7 +492,7 @@ export class FirestoreSyncService {
       await deleteDoc(docRef);
       console.log(`[Firestore] Article deleted from Cloud Firestore: ${id}`);
     } catch (err) {
-      console.error('[Firestore] Error deleting article from Cloud Firestore:', err);
+      handleFirestoreError(err, OperationType.DELETE, `news/${id}`);
     }
   }
 
@@ -440,7 +503,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(settings);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving settings:', err);
+      handleFirestoreError(err, OperationType.WRITE, 'settings/main');
     }
   }
 
@@ -451,7 +514,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(category);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving category:', err);
+      handleFirestoreError(err, OperationType.WRITE, `categories/${category.id}`);
     }
   }
 
@@ -460,7 +523,7 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'categories', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.error('[Firestore] Error deleting category:', err);
+      handleFirestoreError(err, OperationType.DELETE, `categories/${id}`);
     }
   }
 
@@ -471,7 +534,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(state);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving state:', err);
+      handleFirestoreError(err, OperationType.WRITE, `states/${state.id}`);
     }
   }
 
@@ -481,7 +544,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(district);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving district:', err);
+      handleFirestoreError(err, OperationType.WRITE, `districts/${district.id}`);
     }
   }
 
@@ -490,7 +553,7 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'districts', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.error('[Firestore] Error deleting district:', err);
+      handleFirestoreError(err, OperationType.DELETE, `districts/${id}`);
     }
   }
 
@@ -501,7 +564,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(app);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving application:', err);
+      handleFirestoreError(err, OperationType.WRITE, `member_applications/${app.id}`);
     }
   }
 
@@ -510,7 +573,7 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'member_applications', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.error('[Firestore] Error deleting application:', err);
+      handleFirestoreError(err, OperationType.DELETE, `member_applications/${id}`);
     }
   }
 
@@ -520,7 +583,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(reporter);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving reporter:', err);
+      handleFirestoreError(err, OperationType.WRITE, `reporters/${reporter.id}`);
     }
   }
 
@@ -529,7 +592,7 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'reporters', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.error('[Firestore] Error deleting reporter:', err);
+      handleFirestoreError(err, OperationType.DELETE, `reporters/${id}`);
     }
   }
 
@@ -540,7 +603,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(letter);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving joining letter:', err);
+      handleFirestoreError(err, OperationType.WRITE, `joining_letters/${letter.id}`);
     }
   }
 
@@ -549,7 +612,7 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'joining_letters', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.error('[Firestore] Error deleting joining letter:', err);
+      handleFirestoreError(err, OperationType.DELETE, `joining_letters/${id}`);
     }
   }
 
@@ -560,7 +623,7 @@ export class FirestoreSyncService {
       const cleaned = cleanForFirestore(ad);
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      console.error('[Firestore] Error saving advertisement:', err);
+      handleFirestoreError(err, OperationType.WRITE, `advertisements/${ad.id}`);
     }
   }
 
@@ -569,7 +632,7 @@ export class FirestoreSyncService {
       const docRef = doc(db, 'advertisements', id);
       await deleteDoc(docRef);
     } catch (err) {
-      console.error('[Firestore] Error deleting advertisement:', err);
+      handleFirestoreError(err, OperationType.DELETE, `advertisements/${id}`);
     }
   }
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Tv, PlayCircle, X, Eye, Flame, Share2 } from 'lucide-react';
 import { NewsArticle } from '../../types/news';
 import { VideoNewsCard } from './NewsCard';
+import { getArticleShareUrl } from '../../lib/slugHelper';
 
 interface VideoNewsSectionProps {
   articles: NewsArticle[];
@@ -143,7 +144,7 @@ export const VideoNewsSection: React.FC<VideoNewsSectionProps> = ({
               <span>संवाददाता: {activeVideo.reporterName || activeVideo.authorName}</span>
               <button
                 onClick={() => {
-                  const shareUrl = `${window.location.origin}/article/${encodeURIComponent(activeVideo.slug || activeVideo.id)}`;
+                  const shareUrl = getArticleShareUrl(activeVideo);
                   if (typeof navigator !== 'undefined' && navigator.share) {
                     navigator.share({
                       title: activeVideo.title,

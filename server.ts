@@ -4,7 +4,9 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
+  initializeFirestore,
   getFirestore,
+  setLogLevel,
   collection,
   doc,
   getDoc,
@@ -14,6 +16,10 @@ import {
   where
 } from "firebase/firestore";
 import firebaseConfigJson from "./firebase-applet-config.json";
+
+// Silence non-fatal gRPC stream idle disconnections
+setLogLevel("error");
+
 import {
   INITIAL_NEWS,
   INITIAL_CATEGORIES,
@@ -34,9 +40,19 @@ const DB_FILE = path.join(DB_DIR, "database.json");
 
 // Initialize Firebase App & Firestore on the Server
 const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
-const firestoreDb = firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== "(default)"
-  ? getFirestore(firebaseApp, firebaseConfigJson.firestoreDatabaseId)
-  : getFirestore(firebaseApp);
+const serverDbId = firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== "(default)"
+  ? firebaseConfigJson.firestoreDatabaseId
+  : undefined;
+
+const firestoreDb = (() => {
+  try {
+    return initializeFirestore(firebaseApp, {
+      experimentalAutoDetectLongPolling: true,
+    }, serverDbId);
+  } catch {
+    return serverDbId ? getFirestore(firebaseApp, serverDbId) : getFirestore(firebaseApp);
+  }
+})();
 
 interface ServerDatabase {
   news: any[];
@@ -215,11 +231,20 @@ async function startServer() {
 
   // Dedicated Binary Image Endpoint for WhatsApp / Social Previews & Client Rendering
   app.get(
-    ["/api/articles/:idOrSlug/image", "/api/articles/:idOrSlug/image.jpg", "/api/articles/:idOrSlug/thumbnail.jpg"],
+    [
+      "/img/:idOrSlug.jpg",
+      "/img/:idOrSlug",
+      "/thumbnail/:idOrSlug.jpg",
+      "/thumbnail/:idOrSlug",
+      "/api/articles/:idOrSlug/image",
+      "/api/articles/:idOrSlug/image.jpg",
+      "/api/articles/:idOrSlug/thumbnail.jpg"
+    ],
     async (req, res) => {
       try {
         const { idOrSlug } = req.params;
-        const article = await findArticleAsync(idOrSlug);
+        const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp)$/i, "").trim();
+        const article = await findArticleAsync(cleanKey);
         const baseUrl = getBaseUrl(req);
 
         if (!article) {
@@ -249,11 +274,11 @@ async function startServer() {
 
           try {
             const imageBuffer = Buffer.from(base64Data, "base64");
-            if (imageBuffer.length > 0) {
+            if (imageBuffer && imageBuffer.length > 0) {
               res.set({
                 "Content-Type": mimeType,
                 "Content-Length": imageBuffer.length.toString(),
-                "Cache-Control": "public, max-age=86400, s-maxage=604800",
+                "Cache-Control": "public, max-age=31536000, immutable",
                 "Access-Control-Allow-Origin": "*",
                 "Accept-Ranges": "bytes"
               });
@@ -636,17 +661,7 @@ async function startServer() {
       return DEFAULT_FALLBACK_IMAGE;
     }
 
-    const articleKey = encodeURIComponent(article.slug || article.id);
-
-    // If Base64 or non-URL data, point to our public binary image endpoint
-    if (
-      trimmed.startsWith("data:") ||
-      (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/"))
-    ) {
-      return `${baseUrl}/api/articles/${articleKey}/image.jpg`;
-    }
-
-    // If already absolute HTTPS URL
+    // If already absolute HTTPS URL (e.g. Unsplash, Firebase storage, Cloudinary, CDN)
     if (trimmed.startsWith("https://")) {
       return trimmed;
     }
@@ -659,15 +674,14 @@ async function startServer() {
       return trimmed;
     }
 
-    // Relative asset path
-    const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-    const cleanBase = baseUrl.replace(/\/+$/, "");
-    return `${cleanBase}${cleanPath}`;
+    // For Base64 uploaded images, serve via clean ASCII binary endpoint
+    const cleanId = String(article.id || article.slug || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
+    return `${baseUrl}/img/${cleanId}.jpg`;
   }
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
     if (!idOrSlug) return null;
-    const raw = idOrSlug.trim().replace(/\/+$/, "");
+    let raw = idOrSlug.trim().replace(/\.(jpg|jpeg|png|webp|html)$/i, "").replace(/\/+$/, "");
     let decoded = raw;
     try {
       decoded = decodeURIComponent(raw).trim();
@@ -681,6 +695,7 @@ async function startServer() {
       if (!a) return false;
       const aId = String(a.id || "").trim();
       const aSlug = String(a.slug || "").trim();
+      const aTitle = String(a.title || "").trim();
       return (
         aId === raw ||
         aSlug === raw ||
@@ -689,7 +704,8 @@ async function startServer() {
         aId.toLowerCase() === lowerRaw ||
         aSlug.toLowerCase() === lowerRaw ||
         aId.toLowerCase() === lowerDecoded ||
-        aSlug.toLowerCase() === lowerDecoded
+        aSlug.toLowerCase() === lowerDecoded ||
+        (aTitle && aTitle.toLowerCase().includes(lowerDecoded))
       );
     });
 
@@ -750,7 +766,7 @@ async function startServer() {
               aId === raw || aSlug === raw || aId === decoded || aSlug === decoded ||
               aId.toLowerCase() === lowerRaw || aSlug.toLowerCase() === lowerRaw ||
               aId.toLowerCase() === lowerDecoded || aSlug.toLowerCase() === lowerDecoded ||
-              aTitle.toLowerCase().includes(lowerDecoded) ||
+              (aTitle && aTitle.toLowerCase().includes(lowerDecoded)) ||
               (decoded.length > 5 && aSlug.toLowerCase().includes(lowerDecoded.substring(0, 20)))
             ) {
               inMemoryDb.news.unshift(data);
@@ -889,13 +905,14 @@ async function startServer() {
       const baseUrl = getBaseUrl(req);
       let meta: PageMeta;
 
-      // Check if it is an article page: /article/:idOrSlug
-      const articleMatch = rawPath.match(/^\/article\/([^/]+)/i);
+      // Check if it is an article page: /article/:idOrSlug, /n/:idOrSlug, /a/:idOrSlug, /news/:idOrSlug
+      const articleMatch = rawPath.match(/^\/(article|n|a|news)\/([^/]+)/i);
       if (articleMatch) {
-        const idOrSlug = articleMatch[1];
+        const idOrSlug = articleMatch[2];
         const article = await findArticleAsync(idOrSlug);
         if (article) {
-          const canonicalUrl = `${baseUrl}/article/${encodeURIComponent(article.slug || article.id)}`;
+          const cleanSlugOrId = (article.slug && /^[a-z0-9-]+$/i.test(article.slug)) ? article.slug : article.id;
+          const canonicalUrl = `${baseUrl}/article/${cleanSlugOrId}`;
           const absImageUrl = resolveArticleImageUrl(article, baseUrl);
           const description = cleanPlainText(
             article.subtitle || article.summary || article.content,

@@ -29,7 +29,7 @@ import {
   INITIAL_PANCHANG
 } from '../data/initialData';
 import { FirestoreSyncService } from './firestoreService';
-import { articleMatchesKey, cleanArticleSlug, safeDecodeURIComponent } from '../lib/slugHelper';
+import { articleMatchesKey, cleanArticleSlug, safeDecodeURIComponent, generateCleanSlug } from '../lib/slugHelper';
 import { storageGet, storageSet, storageRemove, STORAGE_KEYS } from '../lib/storageManager';
 
 function getItem<T>(key: string, defaultValue: T): T {
@@ -441,17 +441,20 @@ export class NewsService {
           isSpecialReport: !!articleData.isSpecialReport,
           publishDate: articleData.publishDate || now,
           status: articleData.status || 'published',
-          slug: articleData.slug || `news-${Date.now()}`
+          slug: (articleData.slug && /^[a-z0-9-]+$/i.test(articleData.slug))
+            ? articleData.slug
+            : generateCleanSlug(articleData.title, articleData.id)
         };
         articles.unshift(targetArticle);
       }
     } else {
-      const slug = articleData.title
-        ? articleData.title.toLowerCase().replace(/[^a-z0-9\u0900-\u097F]+/g, '-').replace(/^-+|-+$/g, '')
-        : `news-${Date.now()}`;
+      const newId = `art-${Date.now()}`;
+      const slug = (articleData.slug && /^[a-z0-9-]+$/i.test(articleData.slug))
+        ? articleData.slug
+        : generateCleanSlug(articleData.title, newId);
 
       targetArticle = {
-        id: `news-${Date.now()}`,
+        id: newId,
         title: articleData.title || 'शीर्षक रहित समाचार',
         subtitle: articleData.subtitle || '',
         content: articleData.content || '',
@@ -474,7 +477,7 @@ export class NewsService {
         isSpecialReport: !!articleData.isSpecialReport,
         publishDate: articleData.publishDate || now,
         status: articleData.status || 'published',
-        slug: slug || `news-${Date.now()}`
+        slug: slug || newId
       };
       articles.unshift(targetArticle);
     }

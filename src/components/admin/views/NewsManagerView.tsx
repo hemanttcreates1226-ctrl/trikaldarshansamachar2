@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Newspaper, Plus, Search, Edit3, Trash2, Eye, Flame, Sparkles, Check, X, MapPin, Upload, Video, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { Newspaper, Plus, Search, Edit3, Trash2, Eye, Flame, Sparkles, Check, X, MapPin, Upload, Video, Image as ImageIcon, AlertCircle, Volume2, Radio, CheckCircle2 } from 'lucide-react';
 import { NewsArticle, Category, State, District, Reporter } from '../../../types/news';
 import { NewsService } from '../../../services/newsService';
+import { compressImageFile } from '../../../lib/imageCompressor';
 
 interface NewsManagerViewProps {
   initialOpenModal?: boolean;
@@ -20,6 +21,8 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
   const [editingArticle, setEditingArticle] = useState<NewsArticle | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<NewsArticle | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const [isCompressingImg, setIsCompressingImg] = useState(false);
+  const [imageSizeInfo, setImageSizeInfo] = useState<string | null>(null);
 
   // Form State
   const [form, setForm] = useState({
@@ -29,6 +32,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
     summary: '',
     featuredImage: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&q=80',
     videoUrl: '',
+    audioUrl: '',
     categorySlug: 'local-news',
     stateId: 'st-mp',
     districtId: 'dt-ujn',
@@ -45,7 +49,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
     setArticles(NewsService.getArticles({ status: 'all' }));
     setCategories(NewsService.getCategories());
     setStates(NewsService.getStates());
-    setDistricts(NewsService.getDistricts(form.stateId));
+    setDistricts(NewsService.getDistricts(form.stateId || 'st-mp'));
     setReporters(NewsService.getReporters());
   };
 
@@ -55,7 +59,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
     const handleUpdate = () => loadAll();
     window.addEventListener('tds_data_updated', handleUpdate);
     const unsubscribeNews = NewsService.subscribeToNews((realtimeArticles) => {
-      if (realtimeArticles) {
+      if (realtimeArticles && realtimeArticles.length > 0) {
         setArticles(realtimeArticles);
       }
     });
@@ -70,17 +74,30 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
     setDistricts(NewsService.getDistricts(form.stateId));
   }, [form.stateId]);
 
-  // Handle direct file upload for Image
-  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle direct file upload for Image with smart client-side compression
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (reader.result) {
-          setForm(prev => ({ ...prev, featuredImage: reader.result as string }));
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsCompressingImg(true);
+        const compressed = await compressImageFile(file, {
+          maxWidth: 1280,
+          maxHeight: 960,
+          quality: 0.82
+        });
+        setForm(prev => ({ ...prev, featuredImage: compressed.dataUrl }));
+        setImageSizeInfo(`अनुकूलित साइज: ${compressed.sizeKb} KB (${compressed.width}x${compressed.height}px)`);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (reader.result) {
+            setForm(prev => ({ ...prev, featuredImage: reader.result as string }));
+          }
+        };
+        reader.readAsDataURL(file);
+      } finally {
+        setIsCompressingImg(false);
+      }
     }
   };
 
@@ -100,6 +117,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
 
   const handleOpenCreateModal = () => {
     setEditingArticle(null);
+    setImageSizeInfo(null);
     setForm({
       title: '',
       subtitle: '',
@@ -107,6 +125,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
       summary: '',
       featuredImage: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&q=80',
       videoUrl: '',
+      audioUrl: '',
       categorySlug: 'local-news',
       stateId: 'st-mp',
       districtId: 'dt-ujn',
@@ -123,6 +142,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
 
   const handleOpenEditModal = (article: NewsArticle) => {
     setEditingArticle(article);
+    setImageSizeInfo(null);
     const stateId = article.stateId || 'st-mp';
     setDistricts(NewsService.getDistricts(stateId));
     setForm({
@@ -132,6 +152,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
       summary: article.summary,
       featuredImage: article.featuredImage,
       videoUrl: article.videoUrl || '',
+      audioUrl: article.audioUrl || '',
       categorySlug: article.categorySlug,
       stateId: stateId,
       districtId: article.districtId || 'dt-ujn',
@@ -184,6 +205,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
       summary: form.summary || form.content.slice(0, 150),
       featuredImage: form.featuredImage,
       videoUrl: form.videoUrl || undefined,
+      audioUrl: form.audioUrl || undefined,
       categorySlug: form.categorySlug,
       categoryName: categoryObj?.nameHindi || 'स्थानीय',
       stateId: form.stateId,
@@ -202,7 +224,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
     });
 
     setModalOpen(false);
-    showToast(`✅ '${form.title}' समाचार सफलतापूर्वक प्रकाशित/अद्यतित किया गया!`);
+    showToast(`✅ '${form.title}' समाचार तुरंत प्रकाशित व क्लाउड पर सिंक हो गया!`);
     loadAll();
   };
 
@@ -496,8 +518,21 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
                   className="w-full bg-white border border-gray-300 text-xs text-gray-800 rounded-lg p-2 outline-none font-mono"
                 />
 
+                {isCompressingImg && (
+                  <p className="text-[11px] text-amber-700 font-bold flex items-center gap-1 animate-pulse">
+                    <span>⚡ फोटो को अनुकूलित (Compress) किया जा रहा है...</span>
+                  </p>
+                )}
+
+                {imageSizeInfo && (
+                  <p className="text-[11px] text-emerald-700 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{imageSizeInfo}</span>
+                  </p>
+                )}
+
                 {form.featuredImage && (
-                  <div className="w-28 h-20 rounded-lg overflow-hidden border border-gray-300 bg-gray-100">
+                  <div className="w-28 h-20 rounded-lg overflow-hidden border border-gray-300 bg-gray-100 shadow-xs">
                     <img src={form.featuredImage} alt="Preview" className="w-full h-full object-cover" />
                   </div>
                 )}
@@ -512,7 +547,7 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
                   </span>
                   <label className="px-3 py-1 bg-blue-700 text-white rounded text-[11px] font-bold cursor-pointer hover:bg-blue-800 transition flex items-center gap-1">
                     <Upload className="w-3 h-3" />
-                    <span>वीडियो फ़ाइल अपलोड करें</span>
+                    <span>वीडियो फ़ाइल</span>
                     <input
                       type="file"
                       accept="video/*"
@@ -527,6 +562,27 @@ export const NewsManagerView: React.FC<NewsManagerViewProps> = ({ initialOpenMod
                   placeholder="YouTube embed URL / MP4 URL अथवा फ़ाइल अपलोड करें..."
                   value={form.videoUrl}
                   onChange={(e) => setForm({ ...form, videoUrl: e.target.value })}
+                  className="w-full bg-white border border-gray-300 text-xs text-gray-800 rounded-lg p-2 outline-none font-mono"
+                />
+              </div>
+
+              {/* Audio Reader Section (Optional Direct Audio / Podcast URL) */}
+              <div className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl space-y-2">
+                <label className="block text-amber-900 font-bold flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Volume2 className="w-4 h-4 text-amber-700" />
+                    <span>ऑडियो बुलेटिन / पॉडकास्ट (Audio URL - Optional)</span>
+                  </span>
+                  <span className="text-[10px] text-amber-800 bg-amber-100 px-2 py-0.5 rounded font-bold">
+                    खाली छोड़ने पर स्वतः AI आवाज़ बोलेगी
+                  </span>
+                </label>
+
+                <input
+                  type="text"
+                  placeholder="MP3 / Audio URL (वैकल्पिक)..."
+                  value={form.audioUrl}
+                  onChange={(e) => setForm({ ...form, audioUrl: e.target.value })}
                   className="w-full bg-white border border-gray-300 text-xs text-gray-800 rounded-lg p-2 outline-none font-mono"
                 />
               </div>

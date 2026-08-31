@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Clock,
   Eye,
@@ -7,6 +7,9 @@ import {
   Share2,
   Volume2,
   VolumeX,
+  Play,
+  Pause,
+  RotateCcw,
   Type,
   ArrowLeft,
   MessageSquare,
@@ -15,14 +18,18 @@ import {
   Check,
   Building2,
   Copy,
-  Printer
+  Printer,
+  Radio,
+  Sparkles,
+  Gauge
 } from 'lucide-react';
 import { NewsArticle } from '../types/news';
 import { NewsService } from '../services/newsService';
 import { NewsCard } from '../components/news/NewsCard';
 import { AdvertisementContainer } from '../components/news/AdvertisementContainer';
 import { handleImageError } from '../lib/imageFallback';
-import { cleanArticleSlug, safeDecodeURIComponent } from '../lib/slugHelper';
+import { cleanArticleSlug, safeDecodeURIComponent, getArticleShareUrl } from '../lib/slugHelper';
+import { NewsSpeechReader, SpeechState } from '../lib/speechReader';
 
 interface ArticleDetailPageProps {
   articleIdOrSlug: string;
@@ -43,14 +50,44 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     !(NewsService.getArticleByIdOrSlug(normalizedKey) || NewsService.getArticleByIdOrSlug(articleIdOrSlug))
   );
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg' | 'xl'>('base');
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [speechSynth, setSpeechSynth] = useState<SpeechSynthesis | null>(null);
+  
+  // Audio Speech Reader State
+  const [speechState, setSpeechState] = useState<SpeechState>('idle');
+  const [speechProgress, setSpeechProgress] = useState<{ percent: number; current: number; total: number; text: string }>({
+    percent: 0,
+    current: 0,
+    total: 0,
+    text: ''
+  });
+  const [speechRate, setSpeechRate] = useState<number>(0.95);
+  const speechReaderRef = useRef<NewsSpeechReader | null>(null);
+
   const [commentText, setCommentText] = useState('');
   const [commentName, setCommentName] = useState('');
   const [comments, setComments] = useState<Array<{ name: string; text: string; date: string }>>([
     { name: 'रामप्रसाद शर्मा', text: 'बहुत ही सटीक और निष्पक्ष खबर। उज्जैन में यह विकास कार्य समय पर होना चाहिए।', date: '07 अगस्त 2026' }
   ]);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // Initialize Speech Reader Instance
+  useEffect(() => {
+    speechReaderRef.current = new NewsSpeechReader({
+      rate: speechRate,
+      onStateChange: (st) => setSpeechState(st),
+      onProgress: (percent, current, total, text) => {
+        setSpeechProgress({ percent, current, total, text });
+      },
+      onError: (msg) => {
+        console.warn('Speech Reader notice:', msg);
+      }
+    });
+
+    return () => {
+      if (speechReaderRef.current) {
+        speechReaderRef.current.stop();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -102,19 +139,62 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
       }
     });
 
-    if ('speechSynthesis' in window) {
-      setSpeechSynth(window.speechSynthesis);
-    }
-
     return () => {
       isMounted = false;
       window.removeEventListener('tds_data_updated', handleUpdate);
       unsubNews();
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
+      if (speechReaderRef.current) {
+        speechReaderRef.current.stop();
       }
     };
   }, [articleIdOrSlug]);
+
+  const handlePlayAudio = () => {
+    if (!article) return;
+    if (!speechReaderRef.current) {
+      speechReaderRef.current = new NewsSpeechReader({
+        rate: speechRate,
+        onStateChange: (st) => setSpeechState(st),
+        onProgress: (percent, current, total, text) => {
+          setSpeechProgress({ percent, current, total, text });
+        }
+      });
+    }
+
+    speechReaderRef.current.setRate(speechRate);
+    speechReaderRef.current.speak({
+      title: article.title,
+      summary: article.summary,
+      content: article.content,
+      audioUrl: article.audioUrl
+    });
+  };
+
+  const handlePauseAudio = () => {
+    if (speechReaderRef.current) {
+      speechReaderRef.current.pause();
+    }
+  };
+
+  const handleResumeAudio = () => {
+    if (speechReaderRef.current) {
+      speechReaderRef.current.resume();
+    }
+  };
+
+  const handleStopAudio = () => {
+    if (speechReaderRef.current) {
+      speechReaderRef.current.stop();
+      setSpeechProgress({ percent: 0, current: 0, total: 0, text: '' });
+    }
+  };
+
+  const handleChangeRate = (newRate: number) => {
+    setSpeechRate(newRate);
+    if (speechReaderRef.current) {
+      speechReaderRef.current.setRate(newRate);
+    }
+  };
 
   if (loading) {
     return (
@@ -144,29 +224,9 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     );
   }
 
-  const handleToggleAudio = () => {
-    if (!speechSynth) return;
+  const isAudioActive = speechState === 'playing' || speechState === 'paused' || speechState === 'loading';
 
-    if (isPlayingAudio) {
-      speechSynth.cancel();
-      setIsPlayingAudio(false);
-    } else {
-      const textToRead = `${article.title}। ${article.summary}। ${article.content}`;
-      const utterance = new SpeechSynthesisUtterance(textToRead);
-      utterance.lang = 'hi-IN';
-      utterance.rate = 0.95;
-
-      utterance.onend = () => setIsPlayingAudio(false);
-      utterance.onerror = () => setIsPlayingAudio(false);
-
-      speechSynth.speak(utterance);
-      setIsPlayingAudio(true);
-    }
-  };
-
-  const articleCanonicalUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/article/${encodeURIComponent(article.slug || article.id)}`
-    : '';
+  const articleCanonicalUrl = getArticleShareUrl(article);
 
   const handleCopyLink = () => {
     const urlToCopy = articleCanonicalUrl || (typeof window !== 'undefined' ? window.location.href : '');
@@ -292,18 +352,64 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
           </div>
 
           {/* Audio TTS Reader & Font Resizer */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleToggleAudio}
-              className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition ${
-                isPlayingAudio
-                  ? 'bg-red-600 text-white animate-pulse'
-                  : 'bg-[#B7652A] hover:bg-[#F28C28] text-white shadow'
-              }`}
-            >
-              {isPlayingAudio ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              <span>{isPlayingAudio ? 'ऑडियो बंद करें' : 'समाचार सुनें'}</span>
-            </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {!isAudioActive ? (
+              <button
+                type="button"
+                onClick={handlePlayAudio}
+                className="px-3.5 py-1.5 rounded-lg font-bold text-xs bg-gradient-to-r from-[#D71920] to-[#A80F16] hover:opacity-95 text-white shadow-xs flex items-center gap-1.5 cursor-pointer transition active:scale-95"
+                title="पूरा समाचार हिंदी में सुनें"
+              >
+                <Volume2 className="w-4 h-4" />
+                <span>समाचार सुनें</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 p-1 rounded-lg">
+                {speechState === 'playing' ? (
+                  <button
+                    type="button"
+                    onClick={handlePauseAudio}
+                    className="px-2.5 py-1 rounded-md font-bold text-xs bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1 cursor-pointer transition"
+                    title="ऑडियो रोकें"
+                  >
+                    <Pause className="w-3.5 h-3.5" />
+                    <span>रोकें</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResumeAudio}
+                    className="px-2.5 py-1 rounded-md font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 cursor-pointer transition"
+                    title="ऑडियो जारी रखें"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    <span>जारी रखें</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleStopAudio}
+                  className="px-2.5 py-1 rounded-md font-bold text-xs bg-red-600 hover:bg-red-700 text-white flex items-center gap-1 cursor-pointer transition"
+                  title="ऑडियो बंद करें"
+                >
+                  <VolumeX className="w-3.5 h-3.5" />
+                  <span>बंद करें</span>
+                </button>
+
+                {/* Speech Speed Toggle */}
+                <select
+                  value={speechRate}
+                  onChange={(e) => handleChangeRate(Number(e.target.value))}
+                  className="bg-white border border-red-200 text-red-700 text-[11px] font-bold rounded px-1.5 py-1 outline-none cursor-pointer"
+                  title="पढ़ने की गति"
+                >
+                  <option value={0.8}>0.8x (धीमा)</option>
+                  <option value={0.95}>1.0x (सामान्य)</option>
+                  <option value={1.2}>1.2x (तेज)</option>
+                </select>
+              </div>
+            )}
 
             {/* Font Size Selector */}
             <div className="flex items-center bg-white border border-red-200 rounded-lg p-0.5 font-mono text-[11px] shadow-xs">
@@ -328,6 +434,41 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Live Audio Narration Bar when playing */}
+        {isAudioActive && (
+          <div className="bg-gradient-to-r from-red-50 via-amber-50 to-red-50 border border-red-200 rounded-xl p-3.5 shadow-sm space-y-2 animate-fadeIn">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-[#D71920]"></span>
+                </span>
+                <span className="font-bold text-[#D71920] flex items-center gap-1">
+                  <Radio className="w-3.5 h-3.5 animate-pulse" />
+                  <span>{speechState === 'paused' ? 'ऑडियो रुका हुआ है' : 'समाचार वाचक सक्रिय (Audio Narration)'}</span>
+                </span>
+              </div>
+              <span className="text-[11px] font-mono font-bold text-gray-600">
+                {speechProgress.percent > 0 ? `${speechProgress.percent}% पूर्ण` : 'आरंभ हो रहा है...'}
+              </span>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-red-100 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-[#D71920] to-amber-500 h-full transition-all duration-300"
+                style={{ width: `${Math.max(5, speechProgress.percent)}%` }}
+              ></div>
+            </div>
+
+            {speechProgress.text && (
+              <p className="text-xs text-gray-700 italic font-serif-devanagari line-clamp-1 border-l-2 border-[#D71920] pl-2">
+                &ldquo;{speechProgress.text}&rdquo;
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Featured Image */}
         <div className="rounded-xl overflow-hidden shadow-lg border border-red-100">

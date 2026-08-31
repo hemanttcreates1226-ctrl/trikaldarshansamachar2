@@ -9,6 +9,7 @@ export interface NewsArticle {
   featuredImage: string;
   galleryImages?: string[];
   videoUrl?: string;
+  audioUrl?: string;
   categorySlug: string;
   categoryName: string;
   stateId?: string;

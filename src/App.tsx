@@ -114,7 +114,8 @@ export function App() {
 
   const handleSelectArticle = (article: NewsArticle) => {
     NewsService.incrementViews(article.id);
-    navigateTo(`/article/${article.slug || article.id}`, { id: article.id });
+    const targetSlug = (article.slug && /^[a-z0-9-]+$/i.test(article.slug)) ? article.slug : article.id;
+    navigateTo(`/article/${targetSlug}`, { id: article.id });
   };
 
   const handleSearchSubmit = (query: string) => {
@@ -303,9 +304,9 @@ export function App() {
         )}
 
         {/* 2. ARTICLE DETAIL READER PAGE */}
-        {currentPath.startsWith('/article/') && (
+        {(currentPath.startsWith('/article/') || currentPath.startsWith('/n/') || currentPath.startsWith('/a/') || currentPath.startsWith('/news/')) && (
           <ArticleDetailPage
-            articleIdOrSlug={cleanArticleSlug(currentPath.replace(/^\/article\//i, '')) || pathParams.id || ''}
+            articleIdOrSlug={cleanArticleSlug(currentPath.replace(/^\/(article|n|a|news)\//i, '')) || pathParams.id || ''}
             onNavigate={navigateTo}
             onSelectArticle={handleSelectArticle}
           />
