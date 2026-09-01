@@ -249,12 +249,22 @@ async function startServer() {
         const baseUrl = getBaseUrl(req);
 
         if (!article) {
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+          return res.redirect(302, getDefaultFallbackImage(baseUrl));
         }
 
-        const rawFeatured = article.featuredImage || article.image || article.imageUrl || article.thumbnail || (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+        const rawFeatured =
+          article.featuredImage ||
+          article.thumbnail ||
+          article.image ||
+          article.imageUrl ||
+          article.photo ||
+          article.photoUrl ||
+          article.coverImage ||
+          article.bannerImage ||
+          (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+
         if (!rawFeatured) {
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+          return res.redirect(302, getDefaultFallbackImage(baseUrl));
         }
 
         const featured = String(rawFeatured).trim();
@@ -288,7 +298,7 @@ async function startServer() {
           } catch (e) {
             console.error("[Image Endpoint] Base64 decode error:", e);
           }
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+          return res.redirect(302, getDefaultFallbackImage(baseUrl));
         }
 
         // If absolute HTTPS or HTTP URL (e.g. Unsplash, external storage)
@@ -301,13 +311,19 @@ async function startServer() {
           return res.redirect(302, `${baseUrl}${featured}`);
         }
 
-        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        return res.redirect(302, getDefaultFallbackImage(baseUrl));
       } catch (err) {
         console.error("[Image Endpoint Error]", err);
-        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        return res.redirect(302, getDefaultFallbackImage(baseUrl));
       }
     }
   );
+
+  // Serve default fallback image at /default-og-image.jpg
+  app.get(["/default-og-image.jpg", "/default-og-image.png"], (req, res) => {
+    const baseUrl = getBaseUrl(req);
+    return res.redirect(302, `${baseUrl}/logo.png`);
+  });
 
   app.get("/api/articles/:idOrSlug", async (req, res) => {
     const { idOrSlug } = req.params;
@@ -652,13 +668,17 @@ async function startServer() {
   }
 
   function resolveArticleImageUrl(article: any, baseUrl: string): string {
-    if (!article) return DEFAULT_FALLBACK_IMAGE;
+    if (!article) return getDefaultFallbackImage(baseUrl);
 
     let rawImg =
       article.featuredImage ||
+      article.thumbnail ||
       article.image ||
       article.imageUrl ||
-      article.thumbnail ||
+      article.photo ||
+      article.photoUrl ||
+      article.coverImage ||
+      article.bannerImage ||
       (Array.isArray(article.galleryImages) && article.galleryImages[0]);
 
     if (!rawImg && article.content && typeof article.content === "string") {
