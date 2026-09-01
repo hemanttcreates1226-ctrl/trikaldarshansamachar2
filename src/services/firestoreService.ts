@@ -140,6 +140,11 @@ export class FirestoreSyncService {
   private static reporterSubscribers: Set<(reporters: Reporter[]) => void> = new Set();
   private static applicationSubscribers: Set<(apps: MemberApplication[]) => void> = new Set();
   private static letterSubscribers: Set<(letters: JoiningLetter[]) => void> = new Set();
+  private static idCardSubscribers: Set<(cards: IDCard[]) => void> = new Set();
+  private static stateSubscribers: Set<(states: State[]) => void> = new Set();
+  private static districtSubscribers: Set<(districts: District[]) => void> = new Set();
+  private static socialLinkSubscribers: Set<(links: SocialLink[]) => void> = new Set();
+  private static panchangSubscribers: Set<(panchang: PanchangInfo) => void> = new Set();
 
   static async testConnection(): Promise<boolean> {
     try {
@@ -355,6 +360,128 @@ export class FirestoreSyncService {
       );
       this.unsubscribers.push(unsubLetters);
 
+      // 8. Listen to ID Cards in Real-time (onSnapshot)
+      const idCardsCol = collection(db, 'id_cards');
+      const unsubIdCards = onSnapshot(
+        idCardsCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const cards: IDCard[] = [];
+            snapshot.forEach((d) => {
+              const data = d.data() as IDCard;
+              if (data && data.id) cards.push(data);
+            });
+            storageSet(STORAGE_KEYS.ID_CARDS, cards, false, 'firestore_id_cards');
+            
+            this.idCardSubscribers.forEach((cb) => {
+              try { cb(cards); } catch (e) { console.error('ID Card subscriber error:', e); }
+            });
+
+            onDataUpdated('firestore_id_cards');
+          }
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, 'id_cards');
+        }
+      );
+      this.unsubscribers.push(unsubIdCards);
+
+      // 9. Listen to States in Real-time (onSnapshot)
+      const statesCol = collection(db, 'states');
+      const unsubStates = onSnapshot(
+        statesCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const states: State[] = [];
+            snapshot.forEach((d) => {
+              const data = d.data() as State;
+              if (data && data.id) states.push(data);
+            });
+            storageSet(STORAGE_KEYS.STATES, states, false, 'firestore_states');
+            
+            this.stateSubscribers.forEach((cb) => {
+              try { cb(states); } catch (e) { console.error('State subscriber error:', e); }
+            });
+
+            onDataUpdated('firestore_states');
+          }
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, 'states');
+        }
+      );
+      this.unsubscribers.push(unsubStates);
+
+      // 10. Listen to Districts in Real-time (onSnapshot)
+      const districtsCol = collection(db, 'districts');
+      const unsubDistricts = onSnapshot(
+        districtsCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const districts: District[] = [];
+            snapshot.forEach((d) => {
+              const data = d.data() as District;
+              if (data && data.id) districts.push(data);
+            });
+            storageSet(STORAGE_KEYS.DISTRICTS, districts, false, 'firestore_districts');
+            
+            this.districtSubscribers.forEach((cb) => {
+              try { cb(districts); } catch (e) { console.error('District subscriber error:', e); }
+            });
+
+            onDataUpdated('firestore_districts');
+          }
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, 'districts');
+        }
+      );
+      this.unsubscribers.push(unsubDistricts);
+
+      // 11. Listen to Social Links in Real-time (onSnapshot)
+      const socialDoc = doc(db, 'settings', 'social');
+      const unsubSocial = onSnapshot(
+        socialDoc,
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data && Array.isArray(data.links)) {
+              storageSet(STORAGE_KEYS.SOCIAL_LINKS, data.links, false, 'firestore_social_links');
+              this.socialLinkSubscribers.forEach((cb) => {
+                try { cb(data.links); } catch (e) { console.error('Social link subscriber error:', e); }
+              });
+              onDataUpdated('firestore_social_links');
+            }
+          }
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, 'settings/social');
+        }
+      );
+      this.unsubscribers.push(unsubSocial);
+
+      // 12. Listen to Panchang in Real-time (onSnapshot)
+      const panchangDoc = doc(db, 'system', 'panchang');
+      const unsubPanchang = onSnapshot(
+        panchangDoc,
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data() as PanchangInfo;
+            if (data) {
+              storageSet(STORAGE_KEYS.PANCHANG, data, false, 'firestore_panchang');
+              this.panchangSubscribers.forEach((cb) => {
+                try { cb(data); } catch (e) { console.error('Panchang subscriber error:', e); }
+              });
+              onDataUpdated('firestore_panchang');
+            }
+          }
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, 'system/panchang');
+        }
+      );
+      this.unsubscribers.push(unsubPanchang);
+
     } catch (err) {
       console.warn('Firestore real-time sync failed to initialize:', err);
     }
@@ -407,6 +534,41 @@ export class FirestoreSyncService {
     this.letterSubscribers.add(callback);
     return () => {
       this.letterSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToIdCards(callback: (cards: IDCard[]) => void): () => void {
+    this.idCardSubscribers.add(callback);
+    return () => {
+      this.idCardSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToStates(callback: (states: State[]) => void): () => void {
+    this.stateSubscribers.add(callback);
+    return () => {
+      this.stateSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToDistricts(callback: (districts: District[]) => void): () => void {
+    this.districtSubscribers.add(callback);
+    return () => {
+      this.districtSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToSocialLinks(callback: (links: SocialLink[]) => void): () => void {
+    this.socialLinkSubscribers.add(callback);
+    return () => {
+      this.socialLinkSubscribers.delete(callback);
+    };
+  }
+
+  static subscribeToPanchang(callback: (panchang: PanchangInfo) => void): () => void {
+    this.panchangSubscribers.add(callback);
+    return () => {
+      this.panchangSubscribers.delete(callback);
     };
   }
 
@@ -538,6 +700,15 @@ export class FirestoreSyncService {
     }
   }
 
+  static async deleteState(id: string): Promise<void> {
+    try {
+      const docRef = doc(db, 'states', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `states/${id}`);
+    }
+  }
+
   static async saveDistrict(district: District): Promise<void> {
     try {
       const docRef = doc(db, 'districts', district.id);
@@ -554,6 +725,48 @@ export class FirestoreSyncService {
       await deleteDoc(docRef);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `districts/${id}`);
+    }
+  }
+
+  // --- ID CARDS ---
+  static async saveIdCard(card: IDCard): Promise<void> {
+    try {
+      const docRef = doc(db, 'id_cards', card.id);
+      const cleaned = cleanForFirestore(card);
+      await setDoc(docRef, cleaned, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `id_cards/${card.id}`);
+    }
+  }
+
+  static async deleteIdCard(id: string): Promise<void> {
+    try {
+      const docRef = doc(db, 'id_cards', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `id_cards/${id}`);
+    }
+  }
+
+  // --- SOCIAL LINKS ---
+  static async saveSocialLinks(links: SocialLink[]): Promise<void> {
+    try {
+      const docRef = doc(db, 'settings', 'social');
+      const cleaned = cleanForFirestore({ links, updatedAt: new Date().toISOString() });
+      await setDoc(docRef, cleaned, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/social');
+    }
+  }
+
+  // --- PANCHANG ---
+  static async savePanchang(panchang: PanchangInfo): Promise<void> {
+    try {
+      const docRef = doc(db, 'system', 'panchang');
+      const cleaned = cleanForFirestore(panchang);
+      await setDoc(docRef, cleaned, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'system/panchang');
     }
   }
 

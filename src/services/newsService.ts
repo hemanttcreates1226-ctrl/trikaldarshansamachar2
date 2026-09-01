@@ -608,6 +608,13 @@ export class NewsService {
     return targetState;
   }
 
+  static deleteState(id: string): void {
+    const states: State[] = getItem(STORAGE_KEYS.STATES, INITIAL_STATES);
+    setItem(STORAGE_KEYS.STATES, states.filter(s => s.id !== id));
+    FirestoreSyncService.deleteState(id);
+    apiCall(`/api/states/${id}`, 'DELETE');
+  }
+
   static getDistricts(stateId?: string): District[] {
     const districts: District[] = getItem(STORAGE_KEYS.DISTRICTS, INITIAL_DISTRICTS);
     if (stateId && stateId !== 'all') {
@@ -822,7 +829,22 @@ export class NewsService {
   static deleteIDCard(id: string): void {
     const idCards: IDCard[] = getItem(STORAGE_KEYS.ID_CARDS, INITIAL_ID_CARDS);
     setItem(STORAGE_KEYS.ID_CARDS, idCards.filter(c => c.id !== id));
+    FirestoreSyncService.deleteIdCard(id);
     apiCall(`/api/id-cards/${id}`, 'DELETE');
+  }
+
+  static saveIDCard(card: IDCard): IDCard {
+    const idCards: IDCard[] = getItem(STORAGE_KEYS.ID_CARDS, INITIAL_ID_CARDS);
+    const idx = idCards.findIndex(c => c.id === card.id);
+    if (idx !== -1) {
+      idCards[idx] = card;
+    } else {
+      idCards.unshift(card);
+    }
+    setItem(STORAGE_KEYS.ID_CARDS, idCards);
+    FirestoreSyncService.saveIdCard(card);
+    apiCall('/api/id-cards', 'POST', card);
+    return card;
   }
 
   static generateIDCardForApp(app: MemberApplication): IDCard {
@@ -855,6 +877,7 @@ export class NewsService {
 
     idCards.unshift(newCard);
     setItem(STORAGE_KEYS.ID_CARDS, idCards);
+    FirestoreSyncService.saveIdCard(newCard);
     apiCall('/api/id-cards', 'POST', newCard);
     return newCard;
   }
@@ -1054,6 +1077,7 @@ export class NewsService {
 
   static saveSocialLinks(links: SocialLink[]): void {
     setItem(STORAGE_KEYS.SOCIAL_LINKS, links);
+    FirestoreSyncService.saveSocialLinks(links);
     apiCall('/api/social-links', 'POST', links);
   }
 
@@ -1099,6 +1123,7 @@ export class NewsService {
         { id: 'soc-tg', platform: 'telegram', label: 'Telegram', url: settings.socialLinks.telegram || '', isEnabled: !!settings.socialLinks.telegram }
       ];
       setItem(STORAGE_KEYS.SOCIAL_LINKS, socialArray);
+      FirestoreSyncService.saveSocialLinks(socialArray);
     }
 
     apiCall('/api/settings', 'PUT', updated);
@@ -1108,6 +1133,13 @@ export class NewsService {
   // --- PANCHANG ---
   static getPanchang(): PanchangInfo {
     return getItem(STORAGE_KEYS.PANCHANG, INITIAL_PANCHANG);
+  }
+
+  static savePanchang(panchang: PanchangInfo): PanchangInfo {
+    setItem(STORAGE_KEYS.PANCHANG, panchang);
+    FirestoreSyncService.savePanchang(panchang);
+    apiCall('/api/panchang', 'POST', panchang);
+    return panchang;
   }
 
   // --- REAL-TIME FIRESTORE ON-SNAPSHOT SUBSCRIBERS ---
@@ -1137,6 +1169,26 @@ export class NewsService {
 
   static subscribeToJoiningLetters(callback: (letters: JoiningLetter[]) => void): () => void {
     return FirestoreSyncService.subscribeToJoiningLetters(callback);
+  }
+
+  static subscribeToIdCards(callback: (cards: IDCard[]) => void): () => void {
+    return FirestoreSyncService.subscribeToIdCards(callback);
+  }
+
+  static subscribeToStates(callback: (states: State[]) => void): () => void {
+    return FirestoreSyncService.subscribeToStates(callback);
+  }
+
+  static subscribeToDistricts(callback: (districts: District[]) => void): () => void {
+    return FirestoreSyncService.subscribeToDistricts(callback);
+  }
+
+  static subscribeToSocialLinks(callback: (links: SocialLink[]) => void): () => void {
+    return FirestoreSyncService.subscribeToSocialLinks(callback);
+  }
+
+  static subscribeToPanchang(callback: (panchang: PanchangInfo) => void): () => void {
+    return FirestoreSyncService.subscribeToPanchang(callback);
   }
 }
 

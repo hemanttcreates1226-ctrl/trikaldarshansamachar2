@@ -30,6 +30,50 @@ export const STORAGE_KEYS = {
 // In-memory cache for ultra-fast, quota-free access
 const memoryStore = new Map<string, any>();
 
+// Cross-tab real-time BroadcastChannel for instant zero-latency multi-tab sync on the same device
+let broadcastChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    broadcastChannel = new BroadcastChannel('tds_sync_channel');
+    broadcastChannel.onmessage = (event) => {
+      if (event.data && event.data.key) {
+        const { key, value } = event.data;
+        if (value !== undefined) {
+          memoryStore.set(key, value);
+        } else {
+          memoryStore.delete(key);
+        }
+        window.dispatchEvent(
+          new CustomEvent('tds_data_updated', {
+            detail: { key, source: 'cross_tab_broadcast' }
+          })
+        );
+      }
+    };
+  } catch {
+    // BroadcastChannel unsupported or blocked
+  }
+}
+
+// Storage event listener fallback
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key && Object.values(STORAGE_KEYS).includes(e.key as any)) {
+      if (e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          memoryStore.set(e.key, parsed);
+        } catch {}
+      }
+      window.dispatchEvent(
+        new CustomEvent('tds_data_updated', {
+          detail: { key: e.key, source: 'storage_event' }
+        })
+      );
+    }
+  });
+}
+
 export function storageGet<T>(key: string, defaultValue: T): T {
   // 1. Check in-memory store first
   if (memoryStore.has(key)) {
@@ -143,7 +187,14 @@ export function storageSet<T>(key: string, value: T, notify = true, source?: str
   // 2. Persist safely without throwing or console erroring
   safePersistToLocalStorage(key, value);
 
-  // 3. Dispatch update event
+  // 3. Broadcast to all other open tabs on this browser
+  if (broadcastChannel && source !== 'cross_tab_broadcast') {
+    try {
+      broadcastChannel.postMessage({ key, value });
+    } catch {}
+  }
+
+  // 4. Dispatch update event
   if (notify && typeof window !== 'undefined') {
     try {
       window.dispatchEvent(
@@ -162,6 +213,13 @@ export function storageRemove(key: string, notify = true): void {
       localStorage.removeItem(key);
     } catch {}
   }
+
+  if (broadcastChannel) {
+    try {
+      broadcastChannel.postMessage({ key, value: undefined });
+    } catch {}
+  }
+
   if (notify && typeof window !== 'undefined') {
     try {
       window.dispatchEvent(

@@ -142,6 +142,7 @@ function saveDatabaseToDisk(): void {
 // Set up background Firestore real-time synchronization for server
 function initFirestoreSync(): void {
   try {
+    // 1. News Articles
     const newsCol = collection(firestoreDb, "news");
     onSnapshot(newsCol, (snapshot) => {
       if (!snapshot.empty) {
@@ -159,13 +160,185 @@ function initFirestoreSync(): void {
         });
         inMemoryDb.news = cloudArticles;
         saveDatabaseToDisk();
-        console.log(`[Firestore Sync] Synchronized ${cloudArticles.length} articles into server memory`);
       }
     }, (err) => {
-      console.warn("[Firestore Sync] Snapshot listener warning:", err.message);
+      console.warn("[Firestore Sync] News listener warning:", err.message);
     });
+
+    // 2. Settings
+    const settingsDoc = doc(firestoreDb, "settings", "main");
+    onSnapshot(settingsDoc, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data) {
+          inMemoryDb.settings = { ...inMemoryDb.settings, ...data };
+          saveDatabaseToDisk();
+        }
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Settings listener warning:", err.message);
+    });
+
+    // 3. Categories
+    const catCol = collection(firestoreDb, "categories");
+    onSnapshot(catCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+        inMemoryDb.categories = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Categories listener warning:", err.message);
+    });
+
+    // 4. Advertisements
+    const adCol = collection(firestoreDb, "advertisements");
+    onSnapshot(adCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        inMemoryDb.advertisements = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Ads listener warning:", err.message);
+    });
+
+    // 5. Reporters
+    const repCol = collection(firestoreDb, "reporters");
+    onSnapshot(repCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        inMemoryDb.reporters = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Reporters listener warning:", err.message);
+    });
+
+    // 6. Applications
+    const appCol = collection(firestoreDb, "member_applications");
+    onSnapshot(appCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        inMemoryDb.applications = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Applications listener warning:", err.message);
+    });
+
+    // 7. Joining Letters
+    const jlCol = collection(firestoreDb, "joining_letters");
+    onSnapshot(jlCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        inMemoryDb.joiningLetters = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Joining letters listener warning:", err.message);
+    });
+
+    // 8. ID Cards
+    const idCol = collection(firestoreDb, "id_cards");
+    onSnapshot(idCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        inMemoryDb.idCards = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] ID cards listener warning:", err.message);
+    });
+
+    // 9. States
+    const stateCol = collection(firestoreDb, "states");
+    onSnapshot(stateCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        inMemoryDb.states = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] States listener warning:", err.message);
+    });
+
+    // 10. Districts
+    const dtCol = collection(firestoreDb, "districts");
+    onSnapshot(dtCol, (snapshot) => {
+      if (!snapshot.empty) {
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          if (data && data.id) list.push(data);
+        });
+        inMemoryDb.districts = list;
+        saveDatabaseToDisk();
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Districts listener warning:", err.message);
+    });
+
+    // 11. Social Links
+    const socialDoc = doc(firestoreDb, "settings", "social");
+    onSnapshot(socialDoc, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && Array.isArray(data.links)) {
+          inMemoryDb.socialLinks = data.links;
+          saveDatabaseToDisk();
+        }
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Social links listener warning:", err.message);
+    });
+
+    // 12. Panchang
+    const panchangDoc = doc(firestoreDb, "system", "panchang");
+    onSnapshot(panchangDoc, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data) {
+          inMemoryDb.panchang = data;
+          saveDatabaseToDisk();
+        }
+      }
+    }, (err) => {
+      console.warn("[Firestore Sync] Panchang listener warning:", err.message);
+    });
+
+    console.log("[Firestore Sync] All collections synchronized and listening for live changes");
   } catch (err) {
-    console.warn("[Firestore Sync] Could not initialize Firestore listener:", err);
+    console.warn("[Firestore Sync] Could not initialize Firestore listeners:", err);
   }
 }
 
