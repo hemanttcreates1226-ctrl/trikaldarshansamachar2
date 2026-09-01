@@ -178,60 +178,124 @@ export function getArticleShareUrl(article: { id?: string; slug?: string; title?
   return `${origin}/article/${id || 'news'}`;
 }
 
+export function devanagariSkeleton(str: string | undefined | null): string {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFKD')
+    .replace(/[\u093e-\u094d\u0951-\u0954\u0962-\u0963\u0901-\u0903\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[^a-zA-Z0-9\u0900-\u097F]/g, '')
+    .toLowerCase();
+}
+
+export function tokenizeText(str: string | undefined | null): string[] {
+  if (!str) return [];
+  return String(str)
+    .toLowerCase()
+    .replace(/[^\u0900-\u097Fa-z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 2);
+}
+
 export function articleMatchesKey(article: any, searchKey: string | undefined | null): boolean {
   if (!article || !searchKey) return false;
 
   const rawKey = String(searchKey).trim();
   const cleanedKey = cleanArticleSlug(searchKey);
   const normalizedKey = normalizeText(cleanedKey);
+  const decodedKey = safeDecodeURIComponent(rawKey);
 
   const artId = String(article.id || '').trim();
   const artSlug = String(article.slug || '').trim();
   const artTitle = String(article.title || '').trim();
 
-  // 1. Direct equality
-  if (artId === rawKey || artSlug === rawKey || artId === cleanedKey || artSlug === cleanedKey) {
+  // 1. Direct and lowercase equality across ID and Slug
+  if (
+    artId === rawKey ||
+    artSlug === rawKey ||
+    artId === cleanedKey ||
+    artSlug === cleanedKey ||
+    artId === decodedKey ||
+    artSlug === decodedKey
+  ) {
     return true;
   }
 
-  // 2. Normalized equality
+  const lowerRaw = rawKey.toLowerCase();
+  const lowerDecoded = decodedKey.toLowerCase();
+  const lowerArtId = artId.toLowerCase();
+  const lowerArtSlug = artSlug.toLowerCase();
+
+  if (
+    lowerArtId === lowerRaw ||
+    lowerArtSlug === lowerRaw ||
+    lowerArtId === lowerDecoded ||
+    lowerArtSlug === lowerDecoded
+  ) {
+    return true;
+  }
+
+  // 2. Normalized string equality
   const normId = normalizeText(artId);
   const normSlug = normalizeText(artSlug);
+  const normDecoded = normalizeText(decodedKey);
 
-  if (normId === normalizedKey || normSlug === normalizedKey) {
+  if (normId === normalizedKey || normSlug === normalizedKey || normSlug === normDecoded || normId === normDecoded) {
     return true;
   }
 
-  // 3. Match against encoded forms
-  try {
-    const encKey = encodeURIComponent(cleanedKey);
-    if (normSlug === normalizeText(encKey) || normId === normalizeText(encKey)) {
-      return true;
-    }
-  } catch {}
-
-  // 4. Match against generated transliteration slug
-  if (artTitle) {
-    const transliterated = transliterateHindiToEnglish(artTitle);
-    if (transliterated && normalizedKey.includes(normalizeText(transliterated))) {
-      return true;
-    }
-
-    const titleSlug = artTitle
-      .toLowerCase()
-      .replace(/[^\u0900-\u097F\w\s-]/g, '')
-      .trim()
-      .replace(/\s+/g, '-');
-    if (normalizeText(titleSlug) === normalizedKey) {
-      return true;
-    }
-  }
-
-  // 5. Short ID suffix match (e.g. artId is news-1725... and cleanedKey is art-1725...)
+  // 3. Numeric ID match (e.g. timestamp match 1788160772501)
   const numId = artId.replace(/\D/g, '');
-  const numKey = cleanedKey.replace(/\D/g, '');
-  if (numId && numKey && (numId.endsWith(numKey) || numKey.endsWith(numId))) {
+  const numKey = rawKey.replace(/\D/g, '');
+  if (numId && numKey && numKey.length >= 5 && (numId.endsWith(numKey) || numKey.endsWith(numId))) {
     return true;
+  }
+
+  // 4. Devanagari skeleton matching (strips halants, matras, zero-width chars)
+  const skelKey = devanagariSkeleton(decodedKey) || devanagariSkeleton(cleanedKey);
+  if (skelKey && skelKey.length >= 3) {
+    const skelSlug = devanagariSkeleton(artSlug);
+    const skelTitle = devanagariSkeleton(artTitle);
+
+    if (skelSlug === skelKey || skelTitle === skelKey) return true;
+    if (skelSlug && skelSlug.includes(skelKey)) return true;
+    if (skelKey && skelKey.includes(skelSlug) && skelSlug.length >= 4) return true;
+    if (skelTitle && skelTitle.includes(skelKey)) return true;
+    if (skelKey && skelKey.includes(skelTitle) && skelTitle.length >= 4) return true;
+  }
+
+  // 5. Transliteration matching (English to Hindi & Hindi to English)
+  const transliteratedTitle = artTitle ? transliterateHindiToEnglish(artTitle) : '';
+  const transliteratedSlug = artSlug ? transliterateHindiToEnglish(artSlug) : '';
+  const transliteratedKey = transliterateHindiToEnglish(decodedKey);
+
+  if (transliteratedTitle && transliteratedTitle.length >= 3) {
+    if (normalizedKey.includes(transliteratedTitle) || transliteratedTitle.includes(normalizedKey)) {
+      return true;
+    }
+    if (transliteratedKey && (transliteratedTitle === transliteratedKey || transliteratedTitle.includes(transliteratedKey) || transliteratedKey.includes(transliteratedTitle))) {
+      return true;
+    }
+  }
+
+  // 6. Token overlap matching for multi-word titles/slugs (in both Hindi and transliterated English)
+  const keyTokens = Array.from(new Set([...tokenizeText(decodedKey), ...tokenizeText(transliteratedKey)])).filter(t => t.length >= 2);
+  if (keyTokens.length > 0) {
+    const artTokens = new Set([
+      ...tokenizeText(artTitle),
+      ...tokenizeText(artSlug),
+      ...tokenizeText(transliteratedTitle),
+      ...tokenizeText(transliteratedSlug)
+    ]);
+
+    let matchedCount = 0;
+    for (const token of keyTokens) {
+      if (artTokens.has(token) || [...artTokens].some(at => at.includes(token) || token.includes(at))) {
+        matchedCount++;
+      }
+    }
+    if (matchedCount >= Math.ceil(keyTokens.length * 0.5) && matchedCount >= 1) {
+      return true;
+    }
   }
 
   return false;
