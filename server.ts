@@ -792,6 +792,64 @@ async function startServer() {
     });
   });
 
+  // Robots.txt for search engines
+  app.get("/robots.txt", (req, res) => {
+    const baseUrl = getBaseUrl(req);
+    res.type("text/plain");
+    res.send(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /admin/\n\nSitemap: ${baseUrl}/sitemap.xml\n`);
+  });
+
+  // Dynamic Sitemap.xml
+  app.get("/sitemap.xml", (req, res) => {
+    const baseUrl = getBaseUrl(req);
+    const articles = Array.isArray(inMemoryDb.news) ? inMemoryDb.news : [];
+    const categories = Array.isArray(inMemoryDb.categories) ? inMemoryDb.categories : [];
+
+    const articleUrls = articles.map((a: any) => {
+      const slugOrId = (a.slug && /^[a-z0-9-]+$/i.test(a.slug)) ? a.slug : a.id;
+      const date = a.publishDate ? new Date(a.publishDate).toISOString() : new Date().toISOString();
+      return `  <url>
+    <loc>${baseUrl}/article/${slugOrId}</loc>
+    <lastmod>${date}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>`;
+    }).join("\n");
+
+    const categoryUrls = categories.map((c: any) => {
+      const slug = c.slug || c.id;
+      return `  <url>
+    <loc>${baseUrl}/category/${slug}</loc>
+    <changefreq>hourly</changefreq>
+    <priority>0.7</priority>
+  </url>`;
+    }).join("\n");
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${baseUrl}/</loc>
+    <changefreq>always</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/join-us</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+${categoryUrls}
+${articleUrls}
+</urlset>`;
+
+    res.type("application/xml");
+    res.send(xml);
+  });
+
   // --- DYNAMIC SERVER-SIDE OPEN GRAPH & SOCIAL PREVIEW GENERATOR ---
   const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1200&h=630&fit=crop&q=80";
 
