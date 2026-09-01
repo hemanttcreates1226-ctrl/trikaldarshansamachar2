@@ -34,6 +34,7 @@ import {
   INITIAL_SETTINGS,
   INITIAL_PANCHANG
 } from "./src/data/initialData";
+import { articleMatchesKey } from "./src/lib/slugHelper";
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "database.json");
@@ -175,8 +176,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+  app.use(express.json({ limit: "25mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
   // --- API ENDPOINTS ---
 
@@ -619,7 +620,7 @@ async function startServer() {
   });
 
   // --- DYNAMIC SERVER-SIDE OPEN GRAPH & SOCIAL PREVIEW GENERATOR ---
-  const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&h=630&fit=crop&q=80";
+  const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1200&h=630&fit=crop&q=80";
 
   function getBaseUrl(req: express.Request): string {
     const rawForwardedHost = req.headers["x-forwarded-host"];
@@ -648,46 +649,21 @@ async function startServer() {
     return `${effectiveProto}://${fallbackHost}`.replace(/\/+$/, "");
   }
 
-  const HINDI_WORD_MAP: Record<string, string> = {
-    "समाचार": "samachar", "खबर": "khabar", "पन्ना": "panna", "उज्जैन": "ujjain",
-    "इंदौर": "indore", "भोपाल": "bhopal", "ग्वालियर": "gwalior", "जबलपुर": "jabalpur",
-    "मध्य": "madhya", "प्रदेश": "pradesh", "साइबर": "cyber", "फ्रॉड": "fraud",
-    "क्राइम": "crime", "पुलिस": "police", "महाकाल": "mahakal", "मंदिर": "mandir",
-    "आरती": "aarti", "योजना": "yojana", "किसान": "kisan", "सरकार": "sarkar",
-    "शिक्षा": "shiksha", "बोर्ड": "board", "परीक्षा": "pariksha", "मौसम": "weather",
-    "बारिश": "barish", "अलर्ट": "alert", "हादसा": "hadsa", "दुर्घटना": "durghatna",
-    "बजट": "budget", "चुनाव": "chunav", "विकास": "vikas"
-  };
-
-  function normalizeText(str: string): string {
-    if (!str) return "";
-    let s = str.toLowerCase();
-    try { s = decodeURIComponent(s); } catch {}
-    return s
-      .replace(/\.(jpg|jpeg|png|webp|html)$/i, "")
-      .replace(/[—–\-_\/+,.:;!|#@$%^&*()?[\]{}<>'"“”‘’]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function transliterateToAscii(hindiText: string): string {
-    if (!hindiText) return "";
-    let str = hindiText.trim();
-    for (const [hindi, eng] of Object.entries(HINDI_WORD_MAP)) {
-      str = str.replace(new RegExp(hindi, "g"), ` ${eng} `);
-    }
-    return str
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
-  }
-
   function resolveArticleImageUrl(article: any, baseUrl: string): string {
     if (!article) return DEFAULT_FALLBACK_IMAGE;
 
-    const rawImg = article.featuredImage || article.image || article.imageUrl || article.thumbnail || (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+    let rawImg =
+      article.featuredImage ||
+      article.image ||
+      article.imageUrl ||
+      article.thumbnail ||
+      (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+
+    if (!rawImg && article.content && typeof article.content === "string") {
+      const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (match && match[1]) rawImg = match[1];
+    }
+
     if (!rawImg || typeof rawImg !== "string") {
       return DEFAULT_FALLBACK_IMAGE;
     }
@@ -697,12 +673,21 @@ async function startServer() {
       return DEFAULT_FALLBACK_IMAGE;
     }
 
-    // If already absolute HTTPS URL (e.g. Unsplash, Firebase storage, Cloudinary, CDN)
+    // 1. If Base64 image data, WhatsApp cannot parse raw inline data URIs in og:image, so serve via image endpoint
+    if (
+      trimmed.startsWith("data:image/") ||
+      (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/") && trimmed.length > 100)
+    ) {
+      const cleanId = String(article.id || article.slug || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
+      return `${baseUrl}/img/${cleanId}.jpg`;
+    }
+
+    // 2. If already absolute HTTPS URL
     if (trimmed.startsWith("https://")) {
       return trimmed;
     }
 
-    // If HTTP, upgrade to HTTPS if not local
+    // 3. If HTTP, upgrade to HTTPS if not local
     if (trimmed.startsWith("http://")) {
       if (!trimmed.includes("localhost") && !trimmed.includes("127.0.0.1")) {
         return trimmed.replace(/^http:\/\//i, "https://");
@@ -710,83 +695,34 @@ async function startServer() {
       return trimmed;
     }
 
-    // For Base64 uploaded images or relative images, serve via dedicated binary image endpoint
-    const key = article.id || article.slug || "news";
-    const safeKey = encodeURIComponent(String(key).trim());
-    return `${baseUrl}/img/${safeKey}.jpg`;
+    // 4. If relative local asset path
+    if (trimmed.startsWith("/")) {
+      return `${baseUrl}${trimmed}`;
+    }
+
+    const cleanId = String(article.id || article.slug || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
+    return `${baseUrl}/img/${cleanId}.jpg`;
   }
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
     if (!idOrSlug) return null;
-    let raw = String(idOrSlug).trim().replace(/\.(jpg|jpeg|png|webp|html)$/i, "").replace(/\/+$/, "");
+    let raw = idOrSlug.trim().replace(/\.(jpg|jpeg|png|webp|html)$/i, "").replace(/\/+$/, "");
     let decoded = raw;
     try {
       decoded = decodeURIComponent(raw).trim();
     } catch {}
 
-    const lowerRaw = raw.toLowerCase();
-    const lowerDecoded = decoded.toLowerCase();
-    const normSearch = normalizeText(decoded);
-    const translitSearch = transliterateToAscii(decoded);
-    const searchWords = normSearch.split(" ").filter((w) => w.length >= 2);
-
-    const matchArticle = (a: any): boolean => {
-      if (!a) return false;
-      const aId = String(a.id || "").trim();
-      const aSlug = String(a.slug || "").trim();
-      const aTitle = String(a.title || "").trim();
-      const aIdLower = aId.toLowerCase();
-      const aSlugLower = aSlug.toLowerCase();
-      const aTitleLower = aTitle.toLowerCase();
-
-      // Exact ID or Slug
-      if (aId === raw || aSlug === raw || aId === decoded || aSlug === decoded) return true;
-      if (aIdLower === lowerRaw || aSlugLower === lowerRaw || aIdLower === lowerDecoded || aSlugLower === lowerDecoded) return true;
-
-      // Clean ID without prefix (e.g. news-panna-cyber-fraud -> panna-cyber-fraud)
-      const cleanId = aIdLower.replace(/^news-|^art-/, "");
-      if (cleanId === lowerRaw || cleanId === lowerDecoded || lowerRaw.includes(cleanId) || lowerDecoded.includes(cleanId)) return true;
-
-      // Normalized match
-      const normSlug = normalizeText(aSlug);
-      const normTitle = normalizeText(aTitle);
-      if (normSlug && normSearch && (normSlug === normSearch || normSlug.includes(normSearch) || normSearch.includes(normSlug))) return true;
-      if (normTitle && normSearch && (normTitle === normSearch || normTitle.includes(normSearch) || normSearch.includes(normTitle))) return true;
-
-      // Transliterated match
-      if (translitSearch && translitSearch.length >= 3) {
-        const aTranslit = transliterateToAscii(aTitle);
-        if (aTranslit && (aTranslit.includes(translitSearch) || translitSearch.includes(aTranslit))) return true;
-        if (aSlugLower.includes(translitSearch) || translitSearch.includes(aSlugLower)) return true;
-      }
-
-      // Keyword token overlap scoring
-      if (searchWords.length >= 2) {
-        let matchCount = 0;
-        for (const w of searchWords) {
-          if (normTitle.includes(w) || normSlug.includes(w) || aTitleLower.includes(w)) {
-            matchCount++;
-          }
-        }
-        if (matchCount >= 2 && matchCount >= Math.ceil(searchWords.length * 0.6)) {
-          return true;
-        }
-      }
-
-      return false;
-    };
-
     // 1. Check inMemoryDb first (fastest)
-    let found = inMemoryDb.news.find(matchArticle);
+    let found = inMemoryDb.news.find((a: any) => articleMatchesKey(a, raw) || articleMatchesKey(a, decoded));
     if (found) return found;
 
-    // 2. Check local database.json file
+    // 2. Check local database.json file on disk before hitting Firestore
     if (fs.existsSync(DB_FILE)) {
       try {
         const rawJson = fs.readFileSync(DB_FILE, "utf-8");
         const parsed = JSON.parse(rawJson);
         if (parsed && Array.isArray(parsed.news)) {
-          found = parsed.news.find(matchArticle);
+          found = parsed.news.find((a: any) => articleMatchesKey(a, raw) || articleMatchesKey(a, decoded));
           if (found) {
             inMemoryDb.news = parsed.news;
             return found;
@@ -795,8 +731,9 @@ async function startServer() {
       } catch {}
     }
 
-    // 3. Direct Firestore lookup (with error catch so quota exhaustion does not throw)
+    // 3. Direct Firestore lookup
     try {
+      // Try by document ID
       const directDoc = await getDoc(doc(firestoreDb, "news", raw));
       if (directDoc.exists()) {
         const data = directDoc.data();
@@ -817,6 +754,7 @@ async function startServer() {
         }
       }
 
+      // Try by slug field
       const q1 = query(collection(firestoreDb, "news"), where("slug", "==", raw));
       const snap1 = await getDocs(q1);
       if (!snap1.empty) {
@@ -834,19 +772,13 @@ async function startServer() {
           return data;
         }
       }
-
-      const fullSnap = await getDocs(collection(firestoreDb, "news"));
-      if (!fullSnap.empty) {
-        for (const d of fullSnap.docs) {
-          const data = d.data();
-          if (data && matchArticle(data)) {
-            inMemoryDb.news.unshift(data);
-            return data;
-          }
-        }
-      }
     } catch (err: any) {
-      console.warn("[Firestore Search] Query fallback:", err?.message || err);
+      const msg = err?.message || String(err);
+      if (msg.includes("Quota exceeded") || msg.includes("quota metric")) {
+        console.warn("[Firestore Search] Notice: Firestore daily read quota reached, using server memory & disk cache.");
+      } else {
+        console.warn("[Firestore Search] Query notice:", msg);
+      }
     }
 
     return null;

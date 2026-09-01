@@ -148,27 +148,28 @@ export function cleanArticleSlug(slugOrId: string | undefined | null): string {
 
 /**
  * Returns a clean, short, shareable URL for WhatsApp, Telegram, SMS, etc.
- * Uses ASCII-safe slug or ID to prevent long %E0%A4%... URLs
+ * Uses ASCII-safe ID or concise slug to ensure links are short, simple, and clean.
  */
-export function getArticleShareUrl(article: { id?: string; slug?: string; title?: string }, baseUrl?: string): string {
+export function getArticleShareUrl(article: { id?: string; slug?: string; title?: string } | undefined | null, baseUrl?: string): string {
   if (!article) return baseUrl || '';
   const origin = baseUrl
     ? baseUrl.replace(/\/+$/, '')
     : (typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com');
 
-  const slug = String(article.slug || '').trim();
   const id = String(article.id || '').trim();
+  const slug = String(article.slug || '').trim();
 
-  // If slug is clean ASCII (contains only a-z, 0-9, dash), use it
-  if (slug && /^[a-z0-9-]+$/i.test(slug)) {
-    return `${origin}/article/${slug}`;
-  }
-
-  // Otherwise, use clean article ID or generated clean slug
-  if (id) {
+  // 1. Prefer clean ASCII short ID for the shortest, cleanest URL (e.g. /article/news-5 or /article/art-172512345)
+  if (id && /^[a-zA-Z0-9_-]+$/.test(id)) {
     return `${origin}/article/${id}`;
   }
 
+  // 2. If slug is concise ASCII (a-z, 0-9, dash), use it
+  if (slug && /^[a-zA-Z0-9_-]+$/.test(slug)) {
+    return `${origin}/article/${slug}`;
+  }
+
+  // 3. Otherwise, generate a short transliterated ASCII slug with ID
   if (article.title) {
     const clean = generateCleanSlug(article.title, id);
     return `${origin}/article/${clean}`;

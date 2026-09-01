@@ -226,11 +226,13 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
 
   const isAudioActive = speechState === 'playing' || speechState === 'paused' || speechState === 'loading';
 
-  const articleCanonicalUrl = getArticleShareUrl(article);
+  const shortShareUrl = getArticleShareUrl(
+    article,
+    typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com'
+  );
 
   const handleCopyLink = () => {
-    const urlToCopy = articleCanonicalUrl || (typeof window !== 'undefined' ? window.location.href : '');
-    navigator.clipboard.writeText(urlToCopy);
+    navigator.clipboard.writeText(shortShareUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -241,10 +243,9 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
         await navigator.share({
           title: article.title,
           text: `${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर:`,
-          url: articleCanonicalUrl
+          url: shortShareUrl
         });
       } catch (err) {
-        // Fallback to copy link
         handleCopyLink();
       }
     } else {
@@ -280,9 +281,8 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     limit: 3
   }).filter(a => a.id !== article.id);
 
-  const rawUrl = articleCanonicalUrl || (typeof window !== 'undefined' ? window.location.href : '');
-  const whatsappText = encodeURIComponent(`${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर:\n${rawUrl}`);
-  const encodedShareUrl = encodeURIComponent(rawUrl);
+  const whatsappText = encodeURIComponent(`${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर:\n${shortShareUrl}`);
+  const encodedShareUrl = encodeURIComponent(shortShareUrl);
   const encodedTitle = encodeURIComponent(article.title);
 
   return (
