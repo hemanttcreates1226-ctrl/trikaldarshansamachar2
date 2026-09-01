@@ -249,22 +249,12 @@ async function startServer() {
         const baseUrl = getBaseUrl(req);
 
         if (!article) {
-          return res.redirect(302, getDefaultFallbackImage(baseUrl));
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
         }
 
-        const rawFeatured =
-          article.featuredImage ||
-          article.thumbnail ||
-          article.image ||
-          article.imageUrl ||
-          article.photo ||
-          article.photoUrl ||
-          article.coverImage ||
-          article.bannerImage ||
-          (Array.isArray(article.galleryImages) && article.galleryImages[0]);
-
+        const rawFeatured = article.featuredImage || article.image || article.imageUrl || article.thumbnail || (Array.isArray(article.galleryImages) && article.galleryImages[0]);
         if (!rawFeatured) {
-          return res.redirect(302, getDefaultFallbackImage(baseUrl));
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
         }
 
         const featured = String(rawFeatured).trim();
@@ -298,7 +288,7 @@ async function startServer() {
           } catch (e) {
             console.error("[Image Endpoint] Base64 decode error:", e);
           }
-          return res.redirect(302, getDefaultFallbackImage(baseUrl));
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
         }
 
         // If absolute HTTPS or HTTP URL (e.g. Unsplash, external storage)
@@ -311,19 +301,13 @@ async function startServer() {
           return res.redirect(302, `${baseUrl}${featured}`);
         }
 
-        return res.redirect(302, getDefaultFallbackImage(baseUrl));
+        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
       } catch (err) {
         console.error("[Image Endpoint Error]", err);
-        return res.redirect(302, getDefaultFallbackImage(baseUrl));
+        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
       }
     }
   );
-
-  // Serve default fallback image at /default-og-image.jpg
-  app.get(["/default-og-image.jpg", "/default-og-image.png"], (req, res) => {
-    const baseUrl = getBaseUrl(req);
-    return res.redirect(302, `${baseUrl}/logo.png`);
-  });
 
   app.get("/api/articles/:idOrSlug", async (req, res) => {
     const { idOrSlug } = req.params;
@@ -636,9 +620,7 @@ async function startServer() {
   });
 
   // --- DYNAMIC SERVER-SIDE OPEN GRAPH & SOCIAL PREVIEW GENERATOR ---
-  function getDefaultFallbackImage(baseUrl: string): string {
-    return `${baseUrl}/logo.png`;
-  }
+  const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1200&h=630&fit=crop&q=80";
 
   function getBaseUrl(req: express.Request): string {
     const rawForwardedHost = req.headers["x-forwarded-host"];
@@ -668,17 +650,13 @@ async function startServer() {
   }
 
   function resolveArticleImageUrl(article: any, baseUrl: string): string {
-    if (!article) return getDefaultFallbackImage(baseUrl);
+    if (!article) return DEFAULT_FALLBACK_IMAGE;
 
     let rawImg =
       article.featuredImage ||
-      article.thumbnail ||
       article.image ||
       article.imageUrl ||
-      article.photo ||
-      article.photoUrl ||
-      article.coverImage ||
-      article.bannerImage ||
+      article.thumbnail ||
       (Array.isArray(article.galleryImages) && article.galleryImages[0]);
 
     if (!rawImg && article.content && typeof article.content === "string") {
@@ -687,12 +665,12 @@ async function startServer() {
     }
 
     if (!rawImg || typeof rawImg !== "string") {
-      return getDefaultFallbackImage(baseUrl);
+      return DEFAULT_FALLBACK_IMAGE;
     }
 
     const trimmed = rawImg.trim();
     if (!trimmed) {
-      return getDefaultFallbackImage(baseUrl);
+      return DEFAULT_FALLBACK_IMAGE;
     }
 
     // 1. If Base64 image data, WhatsApp cannot parse raw inline data URIs in og:image, so serve via image endpoint
@@ -932,7 +910,7 @@ async function startServer() {
             title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि",
             description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report।",
             url: `${baseUrl}${rawPath}`,
-            image: getDefaultFallbackImage(baseUrl)
+            image: DEFAULT_FALLBACK_IMAGE
           };
         }
       } else if (rawPath.startsWith("/category/")) {
@@ -944,7 +922,7 @@ async function startServer() {
           title: `${catName} समाचार | त्रिकाल दर्शन समाचार`,
           description: `त्रिकाल दर्शन समाचार पर पढ़ें ${catName} की ताज़ा और प्रामाणिक ख़बरें। सत्य की त्रिकाल दृष्टि।`,
           url: `${baseUrl}${rawPath}`,
-          image: getDefaultFallbackImage(baseUrl)
+          image: DEFAULT_FALLBACK_IMAGE
         };
       } else {
         meta = {
@@ -952,7 +930,7 @@ async function startServer() {
           title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि | Trikal Darshan Samachar",
           description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report। सत्य की त्रिकाल दृष्टि।",
           url: `${baseUrl}${rawPath}`,
-          image: getDefaultFallbackImage(baseUrl)
+          image: DEFAULT_FALLBACK_IMAGE
         };
       }
 
