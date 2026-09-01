@@ -620,7 +620,9 @@ async function startServer() {
   });
 
   // --- DYNAMIC SERVER-SIDE OPEN GRAPH & SOCIAL PREVIEW GENERATOR ---
-  const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1200&h=630&fit=crop&q=80";
+  function getDefaultFallbackImage(baseUrl: string): string {
+    return `${baseUrl}/logo.png`;
+  }
 
   function getBaseUrl(req: express.Request): string {
     const rawForwardedHost = req.headers["x-forwarded-host"];
@@ -665,12 +667,12 @@ async function startServer() {
     }
 
     if (!rawImg || typeof rawImg !== "string") {
-      return DEFAULT_FALLBACK_IMAGE;
+      return getDefaultFallbackImage(baseUrl);
     }
 
     const trimmed = rawImg.trim();
     if (!trimmed) {
-      return DEFAULT_FALLBACK_IMAGE;
+      return getDefaultFallbackImage(baseUrl);
     }
 
     // 1. If Base64 image data, WhatsApp cannot parse raw inline data URIs in og:image, so serve via image endpoint
@@ -910,7 +912,7 @@ async function startServer() {
             title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि",
             description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report।",
             url: `${baseUrl}${rawPath}`,
-            image: DEFAULT_FALLBACK_IMAGE
+            image: getDefaultFallbackImage(baseUrl)
           };
         }
       } else if (rawPath.startsWith("/category/")) {
@@ -922,7 +924,7 @@ async function startServer() {
           title: `${catName} समाचार | त्रिकाल दर्शन समाचार`,
           description: `त्रिकाल दर्शन समाचार पर पढ़ें ${catName} की ताज़ा और प्रामाणिक ख़बरें। सत्य की त्रिकाल दृष्टि।`,
           url: `${baseUrl}${rawPath}`,
-          image: DEFAULT_FALLBACK_IMAGE
+          image: getDefaultFallbackImage(baseUrl)
         };
       } else {
         meta = {
@@ -930,7 +932,7 @@ async function startServer() {
           title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि | Trikal Darshan Samachar",
           description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report। सत्य की त्रिकाल दृष्टि।",
           url: `${baseUrl}${rawPath}`,
-          image: DEFAULT_FALLBACK_IMAGE
+          image: getDefaultFallbackImage(baseUrl)
         };
       }
 
