@@ -242,10 +242,10 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
       try {
         await navigator.share({
           title: article.title,
-          text: `${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर:`,
+          text: `*${article.title}*`,
           url: shortShareUrl
         });
-      } catch (err) {
+      } catch {
         handleCopyLink();
       }
     } else {
@@ -281,7 +281,7 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     limit: 3
   }).filter(a => a.id !== article.id);
 
-  const whatsappText = encodeURIComponent(`${article.title}\n\nपढ़ें त्रिकाल दर्शन समाचार पर:\n${shortShareUrl}`);
+  const whatsappText = encodeURIComponent(`*${article.title}*\n\n${shortShareUrl}`);
   const encodedShareUrl = encodeURIComponent(shortShareUrl);
   const encodedTitle = encodeURIComponent(article.title);
 

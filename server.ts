@@ -904,12 +904,15 @@ ${articleUrls}
       return DEFAULT_FALLBACK_IMAGE;
     }
 
-    // 1. If Base64 image data, WhatsApp cannot parse raw inline data URIs in og:image, so serve via image endpoint
+    const cleanId = (article.slug && /^[a-z0-9-]+$/i.test(article.slug))
+      ? article.slug
+      : String(article.id || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
+
+    // 1. If Base64 image data or long inline data, serve via /img/:id.jpg endpoint so WhatsApp can download the real image binary
     if (
       trimmed.startsWith("data:image/") ||
-      (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/") && trimmed.length > 100)
+      (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/") && trimmed.length > 80)
     ) {
-      const cleanId = String(article.id || article.slug || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
       return `${baseUrl}/img/${cleanId}.jpg`;
     }
 
@@ -931,9 +934,91 @@ ${articleUrls}
       return `${baseUrl}${trimmed}`;
     }
 
-    const cleanId = String(article.id || article.slug || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
     return `${baseUrl}/img/${cleanId}.jpg`;
   }
+
+  // --- DYNAMIC IMAGE SERVING ENDPOINT FOR WHATSAPP / SOCIAL THUMBNAILS ---
+  app.get(
+    ["/img/:idOrSlug", "/img/:idOrSlug.jpg", "/img/:idOrSlug.png", "/img/:idOrSlug.webp", "/api/article-image/:idOrSlug"],
+    async (req, res) => {
+      try {
+        const rawParam = req.params.idOrSlug || "";
+        const cleanIdOrSlug = rawParam.replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
+        const article = await findArticleAsync(cleanIdOrSlug);
+
+        if (!article) {
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        }
+
+        let rawImg =
+          article.featuredImage ||
+          article.image ||
+          article.imageUrl ||
+          article.thumbnail ||
+          (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+
+        if (!rawImg && article.content && typeof article.content === "string") {
+          const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+          if (match && match[1]) rawImg = match[1];
+        }
+
+        if (!rawImg || typeof rawImg !== "string") {
+          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        }
+
+        const trimmed = rawImg.trim();
+
+        // If Base64 Data URI: data:image/jpeg;base64,...
+        const base64Match = trimmed.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+        if (base64Match) {
+          const format = base64Match[1].toLowerCase();
+          const base64Data = base64Match[2];
+          const mimeType = format === "png" ? "image/png" : format === "webp" ? "image/webp" : "image/jpeg";
+          const imgBuffer = Buffer.from(base64Data, "base64");
+
+          res.set({
+            "Content-Type": mimeType,
+            "Content-Length": imgBuffer.length.toString(),
+            "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
+            "Accept-Ranges": "bytes"
+          });
+          return res.status(200).send(imgBuffer);
+        }
+
+        // If raw base64 without prefix
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/") && trimmed.length > 100) {
+          try {
+            const imgBuffer = Buffer.from(trimmed, "base64");
+            res.set({
+              "Content-Type": "image/jpeg",
+              "Content-Length": imgBuffer.length.toString(),
+              "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
+              "Accept-Ranges": "bytes"
+            });
+            return res.status(200).send(imgBuffer);
+          } catch {}
+        }
+
+        // If HTTPS / HTTP remote URL
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+          return res.redirect(302, trimmed);
+        }
+
+        // If local disk file
+        if (trimmed.startsWith("/")) {
+          const localPath = path.join(process.cwd(), trimmed.replace(/^\//, ""));
+          if (fs.existsSync(localPath)) {
+            return res.sendFile(localPath);
+          }
+        }
+
+        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+      } catch (err) {
+        console.error("[Image Serve Error]", err);
+        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+      }
+    }
+  );
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
     if (!idOrSlug) return null;
@@ -1015,6 +1100,25 @@ ${articleUrls}
     return null;
   }
 
+  function isSocialCrawler(userAgent: string | undefined | null): boolean {
+    if (!userAgent) return false;
+    const ua = userAgent.toLowerCase();
+    return (
+      ua.includes("whatsapp") ||
+      ua.includes("facebookexternalhit") ||
+      ua.includes("facebot") ||
+      ua.includes("twitterbot") ||
+      ua.includes("telegrambot") ||
+      ua.includes("linkedinbot") ||
+      ua.includes("pinterest") ||
+      ua.includes("slackbot") ||
+      ua.includes("vkshare") ||
+      ua.includes("w3c_validator") ||
+      ua.includes("redditbot") ||
+      ua.includes("applebot")
+    );
+  }
+
   function escapeHtml(str: string | undefined | null): string {
     if (!str) return "";
     return String(str)
@@ -1044,6 +1148,67 @@ ${articleUrls}
     author?: string;
     publishedTime?: string;
     section?: string;
+  }
+
+  function generateCrawlerHtml(meta: PageMeta): string {
+    const imageType = meta.image.endsWith(".png") ? "image/png" : meta.image.endsWith(".webp") ? "image/webp" : "image/jpeg";
+    return `<!DOCTYPE html>
+<html lang="hi" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(meta.title)}</title>
+  <meta name="description" content="${escapeHtml(meta.description)}" />
+  <link rel="canonical" href="${escapeHtml(meta.url)}" />
+
+  <!-- WhatsApp & Facebook Open Graph -->
+  <meta property="og:type" content="${meta.type}" />
+  <meta property="og:site_name" content="त्रिकाल दर्शन समाचार" />
+  <meta property="og:title" content="${escapeHtml(meta.title)}" />
+  <meta property="og:description" content="${escapeHtml(meta.description)}" />
+  <meta property="og:url" content="${escapeHtml(meta.url)}" />
+  <meta property="og:image" content="${escapeHtml(meta.image)}" />
+  <meta property="og:image:secure_url" content="${escapeHtml(meta.image)}" />
+  <meta property="og:image:type" content="${imageType}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="${escapeHtml(meta.title)}" />
+  <meta property="og:locale" content="hi_IN" />
+  ${meta.publishedTime ? `<meta property="article:published_time" content="${escapeHtml(meta.publishedTime)}" />` : ""}
+  ${meta.author ? `<meta property="article:author" content="${escapeHtml(meta.author)}" />` : ""}
+  ${meta.section ? `<meta property="article:section" content="${escapeHtml(meta.section)}" />` : ""}
+
+  <!-- Twitter / X Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@TrikalDarshan" />
+  <meta name="twitter:title" content="${escapeHtml(meta.title)}" />
+  <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
+  <meta name="twitter:image" content="${escapeHtml(meta.image)}" />
+  <meta name="twitter:image:src" content="${escapeHtml(meta.image)}" />
+  <meta name="twitter:image:alt" content="${escapeHtml(meta.title)}" />
+
+  <!-- Search Engine Microdata -->
+  <meta itemprop="name" content="${escapeHtml(meta.title)}" />
+  <meta itemprop="description" content="${escapeHtml(meta.description)}" />
+  <meta itemprop="image" content="${escapeHtml(meta.image)}" />
+  <link rel="image_src" href="${escapeHtml(meta.image)}" />
+
+  <meta http-equiv="refresh" content="0; url=${escapeHtml(meta.url)}" />
+</head>
+<body style="font-family: sans-serif; padding: 20px; background: #fff; color: #111;">
+  <article>
+    <h1>${escapeHtml(meta.title)}</h1>
+    <p>${escapeHtml(meta.description)}</p>
+    <img src="${escapeHtml(meta.image)}" alt="${escapeHtml(meta.title)}" style="max-width: 100%; height: auto;" />
+    <p><a href="${escapeHtml(meta.url)}">पूरा समाचार पढ़ने के लिए यहाँ क्लिक करें</a></p>
+  </article>
+  <script>
+    if (typeof window !== 'undefined' && window.location.replace) {
+      window.location.replace('${escapeHtml(meta.url)}');
+    }
+  </script>
+</body>
+</html>`;
   }
 
   function injectMetaTags(html: string, meta: PageMeta): string {
@@ -1107,10 +1272,12 @@ ${articleUrls}
     try {
       const rawPath = req.path || "/";
       const baseUrl = getBaseUrl(req);
+      const userAgent = req.headers["user-agent"] || "";
+      const isBot = isSocialCrawler(userAgent);
       let meta: PageMeta;
 
-      // Check if it is an article page: /article/:idOrSlug, /n/:idOrSlug, /a/:idOrSlug, /news/:idOrSlug
-      const articleMatch = rawPath.match(/^\/(article|n|a|news)\/([^/]+)/i);
+      // Check if it is an article page: /article/:idOrSlug, /n/:idOrSlug, /a/:idOrSlug, /news/:idOrSlug, /share/:idOrSlug
+      const articleMatch = rawPath.match(/^\/(article|n|a|news|share)\/([^/]+)/i);
       if (articleMatch) {
         const idOrSlug = articleMatch[2];
         const article = await findArticleAsync(idOrSlug);
@@ -1135,6 +1302,14 @@ ${articleUrls}
             publishedTime: article.publishDate || new Date().toISOString(),
             section: article.categoryName || "समाचार"
           };
+
+          // If social bot (WhatsApp, Facebook, Twitter, Telegram, etc.), return dedicated clean Open Graph HTML immediately!
+          if (isBot) {
+            return res.status(200).set({
+              "Content-Type": "text/html; charset=utf-8",
+              "Cache-Control": "public, max-age=300, s-maxage=600"
+            }).send(generateCrawlerHtml(meta));
+          }
         } else {
           meta = {
             type: "website",
@@ -1155,6 +1330,12 @@ ${articleUrls}
           url: `${baseUrl}${rawPath}`,
           image: DEFAULT_FALLBACK_IMAGE
         };
+        if (isBot) {
+          return res.status(200).set({
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "public, max-age=300, s-maxage=600"
+          }).send(generateCrawlerHtml(meta));
+        }
       } else {
         meta = {
           type: "website",
@@ -1163,6 +1344,12 @@ ${articleUrls}
           url: `${baseUrl}${rawPath}`,
           image: DEFAULT_FALLBACK_IMAGE
         };
+        if (isBot) {
+          return res.status(200).set({
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "public, max-age=300, s-maxage=600"
+          }).send(generateCrawlerHtml(meta));
+        }
       }
 
       let templateHtml = "";
