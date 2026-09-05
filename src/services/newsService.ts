@@ -146,8 +146,7 @@ export class NewsService {
 
       if (shouldSync) {
         if (Array.isArray(serverData.news) && serverData.news.length > 0) {
-          const merged = mergeArticleLists(localArticles, serverData.news);
-          setItem(STORAGE_KEYS.NEWS, merged, false);
+          setItem(STORAGE_KEYS.NEWS, serverData.news, false);
         }
         if (Array.isArray(serverData.categories)) setItem(STORAGE_KEYS.CATEGORIES, serverData.categories, false);
         if (Array.isArray(serverData.states)) setItem(STORAGE_KEYS.STATES, serverData.states, false);

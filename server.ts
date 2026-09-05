@@ -153,12 +153,44 @@ function initFirestoreSync(): void {
             cloudArticles.push(data);
           }
         });
-        cloudArticles.sort((a, b) => {
+
+        // Merge cloud articles with in-memory db, preserving rich image data
+        const cloudMap = new Map<string, any>();
+        cloudArticles.forEach((a) => cloudMap.set(a.id, a));
+
+        const merged: any[] = [];
+        cloudArticles.forEach((c) => {
+          const local = inMemoryDb.news.find((l: any) => l.id === c.id);
+          if (
+            local &&
+            (!c.featuredImage || c.featuredImage.startsWith("/api/articles") || c.featuredImage.startsWith("/img/")) &&
+            local.featuredImage &&
+            !local.featuredImage.startsWith("/api/articles") &&
+            !local.featuredImage.startsWith("/img/")
+          ) {
+            merged.push({ ...c, featuredImage: local.featuredImage, image: local.featuredImage });
+          } else {
+            merged.push(c);
+          }
+        });
+
+        // Keep recent in-memory items (e.g. newly published articles not yet in Firestore snapshot)
+        inMemoryDb.news.forEach((l: any) => {
+          if (!cloudMap.has(l.id)) {
+            const age = Date.now() - new Date(l.publishDate || l.updatedDate || 0).getTime();
+            if (age < 120000) {
+              merged.push(l);
+            }
+          }
+        });
+
+        merged.sort((a, b) => {
           const dateA = new Date(a.publishDate || a.updatedDate || 0).getTime();
           const dateB = new Date(b.publishDate || b.updatedDate || 0).getTime();
           return dateB - dateA;
         });
-        inMemoryDb.news = cloudArticles;
+
+        inMemoryDb.news = merged;
         saveDatabaseToDisk();
       }
     }, (err) => {
@@ -407,25 +439,39 @@ async function startServer() {
   app.get(
     [
       "/img/:idOrSlug.jpg",
+      "/img/:idOrSlug.jpeg",
+      "/img/:idOrSlug.png",
+      "/img/:idOrSlug.webp",
       "/img/:idOrSlug",
       "/thumbnail/:idOrSlug.jpg",
       "/thumbnail/:idOrSlug",
       "/api/articles/:idOrSlug/image",
       "/api/articles/:idOrSlug/image.jpg",
-      "/api/articles/:idOrSlug/thumbnail.jpg"
+      "/api/articles/:idOrSlug/thumbnail.jpg",
+      "/api/article-image/:idOrSlug"
     ],
     async (req, res) => {
       try {
         const { idOrSlug } = req.params;
-        const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp)$/i, "").trim();
+        const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
         const article = await findArticleAsync(cleanKey);
-        const baseUrl = getBaseUrl(req);
 
         if (!article) {
           return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
         }
 
-        const rawFeatured = article.featuredImage || article.image || article.imageUrl || article.thumbnail || (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+        let rawFeatured =
+          article.featuredImage ||
+          article.image ||
+          article.imageUrl ||
+          article.thumbnail ||
+          (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+
+        if (!rawFeatured && article.content && typeof article.content === "string") {
+          const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+          if (match && match[1]) rawFeatured = match[1];
+        }
+
         if (!rawFeatured) {
           return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
         }
@@ -435,7 +481,7 @@ async function startServer() {
         // If Base64 Image (e.g. data:image/jpeg;base64,... or raw base64 data)
         if (
           featured.startsWith("data:") ||
-          (!featured.startsWith("http://") && !featured.startsWith("https://") && !featured.startsWith("/"))
+          (!featured.startsWith("http://") && !featured.startsWith("https://") && !featured.startsWith("/") && featured.length > 50)
         ) {
           let mimeType = "image/jpeg";
           let base64Data = featured;
@@ -452,7 +498,7 @@ async function startServer() {
               res.set({
                 "Content-Type": mimeType,
                 "Content-Length": imageBuffer.length.toString(),
-                "Cache-Control": "public, max-age=31536000, immutable",
+                "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
                 "Access-Control-Allow-Origin": "*",
                 "Accept-Ranges": "bytes"
               });
@@ -469,9 +515,15 @@ async function startServer() {
           return res.redirect(302, featured);
         }
 
-        // If local relative asset path
+        // If local relative asset path (avoid self-reference loops)
         if (featured.startsWith("/")) {
-          return res.redirect(302, `${baseUrl}${featured}`);
+          if (featured.startsWith("/img/") || featured.startsWith("/api/articles/")) {
+            return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+          }
+          const localPath = path.join(process.cwd(), featured.replace(/^\//, ""));
+          if (fs.existsSync(localPath)) {
+            return res.sendFile(localPath);
+          }
         }
 
         return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
@@ -936,89 +988,6 @@ ${articleUrls}
 
     return `${baseUrl}/img/${cleanId}.jpg`;
   }
-
-  // --- DYNAMIC IMAGE SERVING ENDPOINT FOR WHATSAPP / SOCIAL THUMBNAILS ---
-  app.get(
-    ["/img/:idOrSlug", "/img/:idOrSlug.jpg", "/img/:idOrSlug.png", "/img/:idOrSlug.webp", "/api/article-image/:idOrSlug"],
-    async (req, res) => {
-      try {
-        const rawParam = req.params.idOrSlug || "";
-        const cleanIdOrSlug = rawParam.replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
-        const article = await findArticleAsync(cleanIdOrSlug);
-
-        if (!article) {
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
-        }
-
-        let rawImg =
-          article.featuredImage ||
-          article.image ||
-          article.imageUrl ||
-          article.thumbnail ||
-          (Array.isArray(article.galleryImages) && article.galleryImages[0]);
-
-        if (!rawImg && article.content && typeof article.content === "string") {
-          const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
-          if (match && match[1]) rawImg = match[1];
-        }
-
-        if (!rawImg || typeof rawImg !== "string") {
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
-        }
-
-        const trimmed = rawImg.trim();
-
-        // If Base64 Data URI: data:image/jpeg;base64,...
-        const base64Match = trimmed.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
-        if (base64Match) {
-          const format = base64Match[1].toLowerCase();
-          const base64Data = base64Match[2];
-          const mimeType = format === "png" ? "image/png" : format === "webp" ? "image/webp" : "image/jpeg";
-          const imgBuffer = Buffer.from(base64Data, "base64");
-
-          res.set({
-            "Content-Type": mimeType,
-            "Content-Length": imgBuffer.length.toString(),
-            "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
-            "Accept-Ranges": "bytes"
-          });
-          return res.status(200).send(imgBuffer);
-        }
-
-        // If raw base64 without prefix
-        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/") && trimmed.length > 100) {
-          try {
-            const imgBuffer = Buffer.from(trimmed, "base64");
-            res.set({
-              "Content-Type": "image/jpeg",
-              "Content-Length": imgBuffer.length.toString(),
-              "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
-              "Accept-Ranges": "bytes"
-            });
-            return res.status(200).send(imgBuffer);
-          } catch {}
-        }
-
-        // If HTTPS / HTTP remote URL
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-          return res.redirect(302, trimmed);
-        }
-
-        // If local disk file
-        if (trimmed.startsWith("/")) {
-          const localPath = path.join(process.cwd(), trimmed.replace(/^\//, ""));
-          if (fs.existsSync(localPath)) {
-            return res.sendFile(localPath);
-          }
-        }
-
-        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
-      } catch (err) {
-        console.error("[Image Serve Error]", err);
-        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
-      }
-    }
-  );
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
     if (!idOrSlug) return null;
