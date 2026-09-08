@@ -224,6 +224,37 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
     );
   }
 
+  useEffect(() => {
+    if (article) {
+      document.title = `${article.title} | त्रिकाल दर्शन समाचार`;
+      
+      const setMetaTag = (attrName: string, attrVal: string, content: string) => {
+        let el = document.querySelector(`meta[${attrName}="${attrVal}"]`);
+        if (!el) {
+          el = document.createElement('meta');
+          el.setAttribute(attrName, attrVal);
+          document.head.appendChild(el);
+        }
+        el.setAttribute('content', content);
+      };
+
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com';
+      const cleanShare = getArticleShareUrl(article, origin);
+      const desc = article.subtitle || article.summary || article.content.slice(0, 160);
+
+      setMetaTag('property', 'og:title', article.title);
+      setMetaTag('property', 'og:description', desc);
+      setMetaTag('property', 'og:url', cleanShare);
+      setMetaTag('property', 'og:image', article.featuredImage || `${origin}/img/${article.id}.jpg`);
+      setMetaTag('property', 'og:type', 'article');
+      setMetaTag('property', 'og:site_name', 'त्रिकाल दर्शन समाचार');
+      setMetaTag('name', 'twitter:title', article.title);
+      setMetaTag('name', 'twitter:description', desc);
+      setMetaTag('name', 'twitter:image', article.featuredImage || `${origin}/img/${article.id}.jpg`);
+      setMetaTag('name', 'twitter:card', 'summary_large_image');
+    }
+  }, [article]);
+
   const isAudioActive = speechState === 'playing' || speechState === 'paused' || speechState === 'loading';
 
   const shortShareUrl = getArticleShareUrl(

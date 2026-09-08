@@ -26,7 +26,7 @@ import { AdminPage } from './pages/AdminPage';
 // Types & Services
 import { NewsArticle, Category } from './types/news';
 import { NewsService } from './services/newsService';
-import { cleanArticleSlug } from './lib/slugHelper';
+import { cleanArticleSlug, generateCleanSlug } from './lib/slugHelper';
 
 export function App() {
   const getPathFromUrl = () => {
@@ -114,7 +114,9 @@ export function App() {
 
   const handleSelectArticle = (article: NewsArticle) => {
     NewsService.incrementViews(article.id);
-    const targetSlug = (article.slug && /^[a-z0-9-]+$/i.test(article.slug)) ? article.slug : article.id;
+    const targetSlug = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
+      ? article.slug
+      : generateCleanSlug(article.title, article.id);
     navigateTo(`/article/${targetSlug}`, { id: article.id });
   };
 
@@ -363,6 +365,9 @@ export function App() {
         {/* 9. 404 / NOT FOUND FALLBACK */}
         {!['/', '/join-us', '/request-id-card', '/request-joining-letter', '/search', '/about', '/contact'].includes(currentPath) &&
           !currentPath.startsWith('/article/') &&
+          !currentPath.startsWith('/a/') &&
+          !currentPath.startsWith('/n/') &&
+          !currentPath.startsWith('/news/') &&
           !currentPath.startsWith('/category/') &&
           !currentPath.startsWith('/verify/') &&
           currentPath !== '/local-news' &&

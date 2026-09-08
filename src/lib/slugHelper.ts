@@ -15,20 +15,47 @@ const HINDI_CHAR_MAP: Record<string, string> = {
   'क्ष': 'ksh', 'त्र': 'tr', 'ज्ञ': 'gy',
   'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
   'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', 'ँ': 'n', '्': '',
-  '०': '0', '१': '1', '२': '2', '३': '3', '४': '4', '५': '5', '६': '6', '७': '7', '८': '8', '९': '9'
+  '०': '0', '१': '1', '२': '2', '३': '3', '४': '4', '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+  'क़': 'q', 'ख़': 'kh', 'ग़': 'gh', 'ज़': 'z', 'ड़': 'd', 'ढ़': 'dh', 'फ़': 'f', 'य़': 'y',
+  'ॐ': 'om'
 };
 
 const COMMON_HINDI_WORDS: Record<string, string> = {
   'समाचार': 'samachar',
   'खबर': 'khabar',
+  'खबरें': 'khabarein',
   'पन्ना': 'panna',
   'उज्जैन': 'ujjain',
   'इंदौर': 'indore',
   'भोपाल': 'bhopal',
   'ग्वालियर': 'gwalior',
   'जबलपुर': 'jabalpur',
+  'रीवा': 'rewa',
+  'सतना': 'satna',
+  'सागर': 'sagar',
+  'रतलाम': 'ratlam',
+  'देवास': 'dewas',
+  'शाजापुर': 'shajapur',
+  'नीमच': 'neemuch',
+  'मंदसौर': 'mandsaur',
+  'खरगोन': 'khargone',
+  'खंडवा': 'khandwa',
+  'धार': 'dhar',
   'मध्य': 'madhya',
   'प्रदेश': 'pradesh',
+  'राजनीति': 'rajneeti',
+  'मौसम': 'mausam',
+  'और': 'aur',
+  'में': 'mein',
+  'का': 'ka',
+  'की': 'ki',
+  'के': 'ke',
+  'से': 'se',
+  'पर': 'par',
+  'को': 'ko',
+  'है': 'hai',
+  'था': 'tha',
+  'थी': 'thi',
   'साइबर': 'cyber',
   'फ्रॉड': 'fraud',
   'क्राइम': 'crime',
@@ -42,19 +69,42 @@ const COMMON_HINDI_WORDS: Record<string, string> = {
   'शिक्षा': 'shiksha',
   'बोर्ड': 'board',
   'परीक्षा': 'pariksha',
-  'मौसम': 'weather',
   'बारिश': 'barish',
   'अलर्ट': 'alert',
   'हादसा': 'hadsa',
   'दुर्घटना': 'durghatna',
   'बजट': 'budget',
   'चुनाव': 'chunav',
-  'विकास': 'vikas'
+  'विकास': 'vikas',
+  'प्रशासन': 'prashasan',
+  'कलेक्टर': 'collector',
+  'एसपी': 'sp',
+  'थाना': 'thana',
+  'गिरफ्तार': 'arrest',
+  'मौत': 'death',
+  'घायल': 'injured',
+  'अस्पताल': 'hospital',
+  'कॉरिडोर': 'corridor',
+  'दर्शन': 'darshan',
+  'त्रिकाल': 'trikal',
+  'नया': 'naya',
+  'नई': 'nayi',
+  'बड़ा': 'bada',
+  'बड़ी': 'badi',
+  'विशेष': 'vishesh',
+  'राष्ट्रीय': 'national',
+  'देश': 'desh',
+  'विदेश': 'videsh',
+  'लाइव': 'live',
+  'ताजा': 'taza',
+  'ताज़ा': 'taza',
+  'अपडेट': 'update',
+  'ब्यूरो': 'bureau'
 };
 
 /**
  * Transliterates Hindi/Devanagari text to a clean, readable ASCII slug
- * Example: "पन्ना में साइबर फ्रॉड" -> "panna-cyber-fraud"
+ * Example: "राजनीति और मौसम" -> "rajneeti-aur-mausam"
  */
 export function transliterateHindiToEnglish(hindiText: string): string {
   if (!hindiText) return '';
@@ -78,12 +128,12 @@ export function transliterateHindiToEnglish(hindiText: string): string {
     }
   }
 
-  // Clean up dashes
+  // Clean up dashes and limit length
   return result
     .toLowerCase()
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .substring(0, 60);
+    .substring(0, 45);
 }
 
 /**
@@ -95,14 +145,14 @@ export function generateCleanSlug(title: string | undefined | null, id?: string)
   if (!title) return `art-${shortId}`;
 
   const transliterated = transliterateHindiToEnglish(title);
-  if (transliterated && transliterated.length >= 3) {
+  if (transliterated && transliterated.length >= 2) {
     return `${transliterated}-${shortId}`;
   }
 
   // Fallback to ASCII letters from title if present
   const asciiTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  if (asciiTitle && asciiTitle.length >= 3) {
-    return `${asciiTitle.substring(0, 40)}-${shortId}`;
+  if (asciiTitle && asciiTitle.length >= 2) {
+    return `${asciiTitle.substring(0, 35)}-${shortId}`;
   }
 
   return `art-${shortId}`;
@@ -149,33 +199,30 @@ export function cleanArticleSlug(slugOrId: string | undefined | null): string {
 /**
  * Returns a clean, short, shareable URL for WhatsApp, Telegram, SMS, etc.
  * Uses ASCII-safe ID or concise slug to ensure links are short, simple, and clean.
+ * Strictly guarantees no %E0%... percent-encoded Hindi in the shared URL.
  */
 export function getArticleShareUrl(article: { id?: string; slug?: string; title?: string } | undefined | null, baseUrl?: string): string {
-  if (!article) return baseUrl || '';
+  if (!article) return baseUrl || 'https://trikaldarshansamachar.com';
   const origin = baseUrl
     ? baseUrl.replace(/\/+$/, '')
     : (typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com');
 
   const id = String(article.id || '').trim();
-  const slug = String(article.slug || '').trim();
+  const rawSlug = String(article.slug || '').trim();
 
-  // 1. Prefer clean ASCII short ID for the shortest, cleanest URL (e.g. /article/news-5 or /article/art-172512345)
-  if (id && /^[a-zA-Z0-9_-]+$/.test(id)) {
+  // 1. If slug is concise ASCII (a-z, 0-9, dash), use it
+  if (rawSlug && /^[a-zA-Z0-9_-]+$/.test(rawSlug) && rawSlug.length <= 55 && !rawSlug.includes('%')) {
+    return `${origin}/article/${rawSlug}`;
+  }
+
+  // 2. If id is clean ASCII (e.g. news-1, art-172589), use it
+  if (id && /^[a-zA-Z0-9_-]+$/.test(id) && !id.includes('%')) {
     return `${origin}/article/${id}`;
   }
 
-  // 2. If slug is concise ASCII (a-z, 0-9, dash), use it
-  if (slug && /^[a-zA-Z0-9_-]+$/.test(slug)) {
-    return `${origin}/article/${slug}`;
-  }
-
   // 3. Otherwise, generate a short transliterated ASCII slug with ID
-  if (article.title) {
-    const clean = generateCleanSlug(article.title, id);
-    return `${origin}/article/${clean}`;
-  }
-
-  return `${origin}/article/${id || 'news'}`;
+  const clean = generateCleanSlug(article.title, id);
+  return `${origin}/article/${clean}`;
 }
 
 export function devanagariSkeleton(str: string | undefined | null): string {

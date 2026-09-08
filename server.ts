@@ -952,11 +952,11 @@ ${articleUrls}
     }
 
     const trimmed = rawImg.trim();
-    if (!trimmed) {
+    if (!trimmed || trimmed.startsWith("data:image/svg")) {
       return DEFAULT_FALLBACK_IMAGE;
     }
 
-    const cleanId = (article.slug && /^[a-z0-9-]+$/i.test(article.slug))
+    const cleanId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
       ? article.slug
       : String(article.id || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
 
