@@ -169,16 +169,29 @@ export class FirestoreSyncService {
         newsCol,
         (snapshot) => {
           if (snapshot.empty) {
-            // First time setup - seed initial news data into Firestore
-            this.seedInitialCloudData();
+            storageSet(STORAGE_KEYS.NEWS, [], false, 'firestore_news');
+            try { localStorage.setItem(STORAGE_KEYS.LAST_SYNC, String(Date.now())); } catch {}
+            this.articleSubscribers.forEach((cb) => {
+              try { cb([]); } catch (e) { console.error('Article subscriber error:', e); }
+            });
+            onDataUpdated('firestore_news');
             return;
           }
 
           const articles: NewsArticle[] = [];
+          const legacyMockIds = new Set(['news-1', 'news-2', 'news-3', 'news-4', 'news-5', 'news-6', 'news-7', 'news-8']);
+          
           snapshot.forEach((d) => {
             const data = d.data() as NewsArticle;
             if (data && data.id) {
-              articles.push(data);
+              // Automatically purge old hardcoded mock news from Firestore
+              if (legacyMockIds.has(data.id)) {
+                try {
+                  deleteDoc(doc(db, 'news', data.id));
+                } catch {}
+              } else {
+                articles.push(data);
+              }
             }
           });
 
@@ -576,12 +589,6 @@ export class FirestoreSyncService {
   static async seedInitialCloudData(): Promise<void> {
     try {
       const batch = writeBatch(db);
-
-      // Seed News
-      for (const article of INITIAL_NEWS) {
-        const articleRef = doc(db, 'news', article.id);
-        batch.set(articleRef, cleanForFirestore(article), { merge: true });
-      }
 
       // Seed Settings
       const settingsRef = doc(db, 'settings', 'main');

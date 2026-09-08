@@ -11,6 +11,8 @@ import {
   doc,
   getDoc,
   getDocs,
+  setDoc,
+  deleteDoc,
   onSnapshot,
   query,
   where
@@ -91,6 +93,8 @@ function getDefaultDatabase(): ServerDatabase {
 
 let inMemoryDb: ServerDatabase = getDefaultDatabase();
 
+const LEGACY_MOCK_IDS = new Set(['news-1', 'news-2', 'news-3', 'news-4', 'news-5', 'news-6', 'news-7', 'news-8']);
+
 function loadDatabaseFromDisk(): void {
   try {
     if (!fs.existsSync(DB_DIR)) {
@@ -100,10 +104,11 @@ function loadDatabaseFromDisk(): void {
       const raw = fs.readFileSync(DB_FILE, "utf-8");
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
+        const loadedNews = Array.isArray(parsed.news) ? parsed.news.filter((a: any) => !LEGACY_MOCK_IDS.has(a.id)) : [];
         inMemoryDb = {
           ...getDefaultDatabase(),
           ...parsed,
-          news: Array.isArray(parsed.news) ? parsed.news : INITIAL_NEWS,
+          news: loadedNews,
           categories: Array.isArray(parsed.categories) ? parsed.categories : INITIAL_CATEGORIES,
           states: Array.isArray(parsed.states) ? parsed.states : INITIAL_STATES,
           districts: Array.isArray(parsed.districts) ? parsed.districts : INITIAL_DISTRICTS,
@@ -145,54 +150,64 @@ function initFirestoreSync(): void {
     // 1. News Articles
     const newsCol = collection(firestoreDb, "news");
     onSnapshot(newsCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const cloudArticles: any[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data();
-          if (data && data.id) {
+      if (snapshot.empty) {
+        inMemoryDb.news = [];
+        saveDatabaseToDisk();
+        return;
+      }
+
+      const cloudArticles: any[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data();
+        if (data && data.id) {
+          if (LEGACY_MOCK_IDS.has(data.id)) {
+            try {
+              deleteDoc(doc(firestoreDb, "news", data.id));
+            } catch {}
+          } else {
             cloudArticles.push(data);
           }
-        });
+        }
+      });
 
-        // Merge cloud articles with in-memory db, preserving rich image data
-        const cloudMap = new Map<string, any>();
-        cloudArticles.forEach((a) => cloudMap.set(a.id, a));
+      // Merge cloud articles with in-memory db, preserving rich image data
+      const cloudMap = new Map<string, any>();
+      cloudArticles.forEach((a) => cloudMap.set(a.id, a));
 
-        const merged: any[] = [];
-        cloudArticles.forEach((c) => {
-          const local = inMemoryDb.news.find((l: any) => l.id === c.id);
-          if (
-            local &&
-            (!c.featuredImage || c.featuredImage.startsWith("/api/articles") || c.featuredImage.startsWith("/img/")) &&
-            local.featuredImage &&
-            !local.featuredImage.startsWith("/api/articles") &&
-            !local.featuredImage.startsWith("/img/")
-          ) {
-            merged.push({ ...c, featuredImage: local.featuredImage, image: local.featuredImage });
-          } else {
-            merged.push(c);
+      const merged: any[] = [];
+      cloudArticles.forEach((c) => {
+        const local = inMemoryDb.news.find((l: any) => l.id === c.id);
+        if (
+          local &&
+          (!c.featuredImage || c.featuredImage.startsWith("/api/articles") || c.featuredImage.startsWith("/img/")) &&
+          local.featuredImage &&
+          !local.featuredImage.startsWith("/api/articles") &&
+          !local.featuredImage.startsWith("/img/")
+        ) {
+          merged.push({ ...c, featuredImage: local.featuredImage, image: local.featuredImage });
+        } else {
+          merged.push(c);
+        }
+      });
+
+      // Keep recent in-memory items (e.g. newly published articles not yet in Firestore snapshot)
+      inMemoryDb.news.forEach((l: any) => {
+        if (!cloudMap.has(l.id) && !LEGACY_MOCK_IDS.has(l.id)) {
+          const age = Date.now() - new Date(l.publishDate || l.updatedDate || 0).getTime();
+          if (age < 120000) {
+            merged.push(l);
           }
-        });
+        }
+      });
 
-        // Keep recent in-memory items (e.g. newly published articles not yet in Firestore snapshot)
-        inMemoryDb.news.forEach((l: any) => {
-          if (!cloudMap.has(l.id)) {
-            const age = Date.now() - new Date(l.publishDate || l.updatedDate || 0).getTime();
-            if (age < 120000) {
-              merged.push(l);
-            }
-          }
-        });
+      merged.sort((a, b) => {
+        const dateA = new Date(a.publishDate || a.updatedDate || 0).getTime();
+        const dateB = new Date(b.publishDate || b.updatedDate || 0).getTime();
+        return dateB - dateA;
+      });
 
-        merged.sort((a, b) => {
-          const dateA = new Date(a.publishDate || a.updatedDate || 0).getTime();
-          const dateB = new Date(b.publishDate || b.updatedDate || 0).getTime();
-          return dateB - dateA;
-        });
-
-        inMemoryDb.news = merged;
-        saveDatabaseToDisk();
-      }
+      inMemoryDb.news = merged;
+      saveDatabaseToDisk();
     }, (err) => {
       console.warn("[Firestore Sync] News listener warning:", err.message);
     });
@@ -545,18 +560,18 @@ async function startServer() {
     res.status(404).json({ error: "Article not found" });
   });
 
-  app.post("/api/articles", (req, res) => {
+  app.post("/api/articles", async (req, res) => {
     const article = req.body;
     if (!article) return res.status(400).json({ error: "Article data required" });
 
     const now = new Date().toISOString();
     const idx = inMemoryDb.news.findIndex((a: any) => a.id === article.id);
+    let savedArticle: any;
     if (idx !== -1) {
       inMemoryDb.news[idx] = { ...inMemoryDb.news[idx], ...article, updatedDate: now };
-      saveDatabaseToDisk();
-      return res.json(inMemoryDb.news[idx]);
+      savedArticle = inMemoryDb.news[idx];
     } else {
-      const newArticle = {
+      savedArticle = {
         id: article.id || `news-${Date.now()}`,
         views: 1,
         publishDate: article.publishDate || now,
@@ -564,16 +579,32 @@ async function startServer() {
         tags: ["समाचार", "त्रिकाल दर्शन"],
         ...article
       };
-      inMemoryDb.news.unshift(newArticle);
-      saveDatabaseToDisk();
-      return res.json(newArticle);
+      inMemoryDb.news.unshift(savedArticle);
     }
+    saveDatabaseToDisk();
+
+    // Sync to Firestore in background
+    try {
+      await setDoc(doc(firestoreDb, "news", savedArticle.id), savedArticle, { merge: true });
+    } catch (e) {
+      console.warn("[Server DB] Could not sync article to Firestore:", e);
+    }
+
+    return res.json(savedArticle);
   });
 
-  app.delete("/api/articles/:id", (req, res) => {
+  app.delete("/api/articles/:id", async (req, res) => {
     const { id } = req.params;
     inMemoryDb.news = inMemoryDb.news.filter((a: any) => a.id !== id);
     saveDatabaseToDisk();
+
+    // Delete from Firestore in background
+    try {
+      await deleteDoc(doc(firestoreDb, "news", id));
+    } catch (e) {
+      console.warn("[Server DB] Could not delete article from Firestore:", e);
+    }
+
     res.json({ success: true, id });
   });
 

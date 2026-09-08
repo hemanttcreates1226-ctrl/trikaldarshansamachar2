@@ -32,8 +32,14 @@ import { FirestoreSyncService } from './firestoreService';
 import { articleMatchesKey, cleanArticleSlug, safeDecodeURIComponent, generateCleanSlug } from '../lib/slugHelper';
 import { storageGet, storageSet, storageRemove, STORAGE_KEYS } from '../lib/storageManager';
 
+const LEGACY_MOCK_IDS = new Set(['news-1', 'news-2', 'news-3', 'news-4', 'news-5', 'news-6', 'news-7', 'news-8']);
+
 function getItem<T>(key: string, defaultValue: T): T {
-  return storageGet(key, defaultValue);
+  const val = storageGet(key, defaultValue);
+  if (key === STORAGE_KEYS.NEWS && Array.isArray(val)) {
+    return val.filter((a: any) => a && a.id && !LEGACY_MOCK_IDS.has(a.id)) as unknown as T;
+  }
+  return val;
 }
 
 function setItem<T>(key: string, value: T, notify = true): void {
@@ -145,8 +151,9 @@ export class NewsService {
         serverUpdated > lastLocalSync;
 
       if (shouldSync) {
-        if (Array.isArray(serverData.news) && serverData.news.length > 0) {
-          setItem(STORAGE_KEYS.NEWS, serverData.news, false);
+        if (Array.isArray(serverData.news)) {
+          const filtered = serverData.news.filter((a: any) => a && a.id && !LEGACY_MOCK_IDS.has(a.id));
+          setItem(STORAGE_KEYS.NEWS, filtered, false);
         }
         if (Array.isArray(serverData.categories)) setItem(STORAGE_KEYS.CATEGORIES, serverData.categories, false);
         if (Array.isArray(serverData.states)) setItem(STORAGE_KEYS.STATES, serverData.states, false);
