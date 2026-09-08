@@ -191,15 +191,15 @@ export function normalizeText(text: string | undefined | null): string {
 export function cleanArticleSlug(slugOrId: string | undefined | null): string {
   if (!slugOrId) return '';
   let cleaned = safeDecodeURIComponent(slugOrId);
-  // Remove leading article/ or n/ or a/ prefix if passed accidentally
-  cleaned = cleaned.replace(/^\/?(article\/|n\/|a\/)?/i, '').replace(/\/+$/, '').trim();
+  // Remove leading post/ or article/ or n/ or a/ or news/ or p/ prefix if passed accidentally
+  cleaned = cleaned.replace(/^\/?(post\/|article\/|news\/|share\/|p\/|n\/|a\/)?/i, '').replace(/\/+$/, '').trim();
   return cleaned;
 }
 
 /**
  * Returns a clean, short, shareable URL for WhatsApp, Telegram, SMS, etc.
- * Uses ASCII-safe ID or concise slug to ensure links are short, simple, and clean.
- * Strictly guarantees no %E0%... percent-encoded Hindi in the shared URL.
+ * Uses ASCII-safe clean slug (e.g., https://yourwebsite.com/post/post-title)
+ * Strictly guarantees no %E0%... percent-encoded characters in the shared URL.
  */
 export function getArticleShareUrl(article: { id?: string; slug?: string; title?: string } | undefined | null, baseUrl?: string): string {
   if (!article) return baseUrl || 'https://trikaldarshansamachar.com';
@@ -210,19 +210,19 @@ export function getArticleShareUrl(article: { id?: string; slug?: string; title?
   const id = String(article.id || '').trim();
   const rawSlug = String(article.slug || '').trim();
 
-  // 1. If slug is concise ASCII (a-z, 0-9, dash), use it
-  if (rawSlug && /^[a-zA-Z0-9_-]+$/.test(rawSlug) && rawSlug.length <= 55 && !rawSlug.includes('%')) {
-    return `${origin}/article/${rawSlug}`;
+  // 1. If slug is concise clean ASCII (a-z, 0-9, dash), use it
+  if (rawSlug && /^[a-zA-Z0-9_-]+$/.test(rawSlug) && rawSlug.length <= 60 && !rawSlug.includes('%')) {
+    return `${origin}/post/${rawSlug}`;
   }
 
   // 2. If id is clean ASCII (e.g. news-1, art-172589), use it
-  if (id && /^[a-zA-Z0-9_-]+$/.test(id) && !id.includes('%')) {
-    return `${origin}/article/${id}`;
+  if (id && /^[a-zA-Z0-9_-]+$/.test(id) && !id.includes('%') && id.startsWith('news-')) {
+    return `${origin}/post/${id}`;
   }
 
-  // 3. Otherwise, generate a short transliterated ASCII slug with ID
+  // 3. Otherwise, generate a clean transliterated ASCII slug
   const clean = generateCleanSlug(article.title, id);
-  return `${origin}/article/${clean}`;
+  return `${origin}/post/${clean}`;
 }
 
 export function devanagariSkeleton(str: string | undefined | null): string {

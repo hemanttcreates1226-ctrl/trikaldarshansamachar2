@@ -117,7 +117,7 @@ export function App() {
     const targetSlug = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
       ? article.slug
       : generateCleanSlug(article.title, article.id);
-    navigateTo(`/article/${targetSlug}`, { id: article.id });
+    navigateTo(`/post/${targetSlug}`, { id: article.id });
   };
 
   const handleSearchSubmit = (query: string) => {
@@ -306,9 +306,9 @@ export function App() {
         )}
 
         {/* 2. ARTICLE DETAIL READER PAGE */}
-        {(currentPath.startsWith('/article/') || currentPath.startsWith('/n/') || currentPath.startsWith('/a/') || currentPath.startsWith('/news/')) && (
+        {(currentPath.startsWith('/post/') || currentPath.startsWith('/article/') || currentPath.startsWith('/p/') || currentPath.startsWith('/n/') || currentPath.startsWith('/a/') || currentPath.startsWith('/news/')) && (
           <ArticleDetailPage
-            articleIdOrSlug={cleanArticleSlug(currentPath.replace(/^\/(article|n|a|news)\//i, '')) || pathParams.id || ''}
+            articleIdOrSlug={cleanArticleSlug(currentPath.replace(/^\/(post|article|p|n|a|news)\//i, '')) || pathParams.id || ''}
             onNavigate={navigateTo}
             onSelectArticle={handleSelectArticle}
           />

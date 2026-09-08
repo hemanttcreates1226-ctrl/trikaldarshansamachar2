@@ -861,7 +861,7 @@ async function startServer() {
       const slugOrId = (a.slug && /^[a-z0-9-]+$/i.test(a.slug)) ? a.slug : a.id;
       const date = a.publishDate ? new Date(a.publishDate).toISOString() : new Date().toISOString();
       return `  <url>
-    <loc>${baseUrl}/article/${slugOrId}</loc>
+    <loc>${baseUrl}/post/${slugOrId}</loc>
     <lastmod>${date}</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -916,8 +916,8 @@ ${articleUrls}
       : req.protocol || "https";
 
     if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("0.0.0.0")) {
-      const isCustomDomain = host.includes("trikaldarshansamachar.com");
-      const effectiveProto = isCustomDomain ? "https" : proto;
+      // Production live domain or cloud instance always uses HTTPS for external social crawlers
+      const effectiveProto = proto === "http" && (host.includes(".run.app") || host.includes("trikaldarshansamachar.com") || host.includes(".")) ? "https" : proto;
       return `${effectiveProto}://${host}`.replace(/\/+$/, "");
     }
 
@@ -1245,14 +1245,14 @@ ${articleUrls}
       const isBot = isSocialCrawler(userAgent);
       let meta: PageMeta;
 
-      // Check if it is an article page: /article/:idOrSlug, /n/:idOrSlug, /a/:idOrSlug, /news/:idOrSlug, /share/:idOrSlug
-      const articleMatch = rawPath.match(/^\/(article|n|a|news|share)\/([^/]+)/i);
+      // Check if it is an article page: /post/:idOrSlug, /article/:idOrSlug, /p/:idOrSlug, /n/:idOrSlug, /a/:idOrSlug, /news/:idOrSlug, /share/:idOrSlug
+      const articleMatch = rawPath.match(/^\/(post|article|p|n|a|news|share)\/([^/]+)/i);
       if (articleMatch) {
         const idOrSlug = articleMatch[2];
         const article = await findArticleAsync(idOrSlug);
         if (article) {
           const cleanSlugOrId = (article.slug && /^[a-z0-9-]+$/i.test(article.slug)) ? article.slug : article.id;
-          const canonicalUrl = `${baseUrl}/article/${cleanSlugOrId}`;
+          const canonicalUrl = `${baseUrl}/post/${cleanSlugOrId}`;
           const absImageUrl = resolveArticleImageUrl(article, baseUrl);
           const description = cleanPlainText(
             article.subtitle || article.summary || article.content,
