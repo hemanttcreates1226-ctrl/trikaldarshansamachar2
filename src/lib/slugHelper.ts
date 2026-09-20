@@ -243,6 +243,12 @@ export function tokenizeText(str: string | undefined | null): string[] {
     .filter(w => w.length >= 2);
 }
 
+const STOP_WORDS = new Set([
+  'news', 'art', 'post', 'samachar', 'darshan', 'trikal', 'the', 'and', 'for', 'of', 'in',
+  'to', 'ke', 'ki', 'ka', 'me', 'mein', 'par', 'se', 'hai', 'hain', 'ko', 'aur', 'kya',
+  'yeh', 'vah', 'bhi', 'latest', 'breaking', 'live'
+]);
+
 export function articleMatchesKey(article: any, searchKey: string | undefined | null): boolean {
   if (!article || !searchKey) return false;
 
@@ -255,7 +261,7 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
   const artSlug = String(article.slug || '').trim();
   const artTitle = String(article.title || '').trim();
 
-  // 1. Direct and lowercase equality across ID and Slug
+  // 1. Exact equality (raw, cleaned, and decoded)
   if (
     artId === rawKey ||
     artSlug === rawKey ||
@@ -267,6 +273,7 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
     return true;
   }
 
+  // 2. Case-insensitive equality
   const lowerRaw = rawKey.toLowerCase();
   const lowerDecoded = decodedKey.toLowerCase();
   const lowerArtId = artId.toLowerCase();
@@ -281,69 +288,161 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
     return true;
   }
 
-  // 2. Normalized string equality
+  // 3. Normalized string equality for slugs and IDs
   const normId = normalizeText(artId);
   const normSlug = normalizeText(artSlug);
   const normDecoded = normalizeText(decodedKey);
 
-  if (normId === normalizedKey || normSlug === normalizedKey || normSlug === normDecoded || normId === normDecoded) {
+  if (
+    (normId && (normId === normalizedKey || normId === normDecoded)) ||
+    (normSlug && (normSlug === normalizedKey || normSlug === normDecoded))
+  ) {
     return true;
   }
 
-  // 3. Numeric ID match (e.g. timestamp match 1788160772501)
+  // 4. Numeric ID match (e.g. timestamp suffix match for IDs like news-1788160772501)
   const numId = artId.replace(/\D/g, '');
   const numKey = rawKey.replace(/\D/g, '');
-  if (numId && numKey && numKey.length >= 5 && (numId.endsWith(numKey) || numKey.endsWith(numId))) {
+  if (numId && numKey && numKey.length >= 6) {
+    if (numId === numKey || numId.endsWith(numKey)) {
+      return true;
+    }
+  }
+
+  // If the query looks like an ID (e.g., news-..., art-..., or numeric), STOP here.
+  // Never perform fuzzy token overlap matching on ID lookups.
+  if (/^(news-|art-|\d{5,})/i.test(rawKey) || /^(news-|art-|\d{5,})/i.test(decodedKey)) {
+    return false;
+  }
+
+  // 5. Clean URL path prefix removal (e.g. /post/xyz -> xyz)
+  const cleanPathKey = decodedKey
+    .replace(/^\/?(post|article|news|share|p|n|a)\//i, '')
+    .replace(/\/+$/, '')
+    .trim()
+    .toLowerCase();
+  if (cleanPathKey && (cleanPathKey === lowerArtSlug || cleanPathKey === lowerArtId)) {
     return true;
   }
 
-  // 4. Devanagari skeleton matching (strips halants, matras, zero-width chars)
+  // 6. Devanagari skeleton matching (exact skeleton equality or significant full-match)
   const skelKey = devanagariSkeleton(decodedKey) || devanagariSkeleton(cleanedKey);
-  if (skelKey && skelKey.length >= 3) {
+  if (skelKey && skelKey.length >= 4) {
     const skelSlug = devanagariSkeleton(artSlug);
     const skelTitle = devanagariSkeleton(artTitle);
 
     if (skelSlug === skelKey || skelTitle === skelKey) return true;
-    if (skelSlug && skelSlug.includes(skelKey)) return true;
-    if (skelKey && skelKey.includes(skelSlug) && skelSlug.length >= 4) return true;
-    if (skelTitle && skelTitle.includes(skelKey)) return true;
-    if (skelKey && skelKey.includes(skelTitle) && skelTitle.length >= 4) return true;
+    if (skelSlug && (skelSlug.startsWith(skelKey) || skelKey.startsWith(skelSlug)) && Math.min(skelSlug.length, skelKey.length) >= 6) {
+      return true;
+    }
   }
 
-  // 5. Transliteration matching (English to Hindi & Hindi to English)
+  // 7. Transliteration matching (English to Hindi & Hindi to English)
   const transliteratedTitle = artTitle ? transliterateHindiToEnglish(artTitle) : '';
   const transliteratedSlug = artSlug ? transliterateHindiToEnglish(artSlug) : '';
   const transliteratedKey = transliterateHindiToEnglish(decodedKey);
 
-  if (transliteratedTitle && transliteratedTitle.length >= 3) {
-    if (normalizedKey.includes(transliteratedTitle) || transliteratedTitle.includes(normalizedKey)) {
-      return true;
-    }
-    if (transliteratedKey && (transliteratedTitle === transliteratedKey || transliteratedTitle.includes(transliteratedKey) || transliteratedKey.includes(transliteratedTitle))) {
+  if (transliteratedKey && transliteratedKey.length >= 5) {
+    if (transliteratedSlug && (transliteratedSlug === transliteratedKey || transliteratedSlug.startsWith(transliteratedKey))) {
       return true;
     }
   }
 
-  // 6. Token overlap matching for multi-word titles/slugs (in both Hindi and transliterated English)
-  const keyTokens = Array.from(new Set([...tokenizeText(decodedKey), ...tokenizeText(transliteratedKey)])).filter(t => t.length >= 2);
-  if (keyTokens.length > 0) {
+  // 8. Token overlap matching for long multi-word queries ONLY (filtering out stop-words)
+  const keyTokens = Array.from(new Set([...tokenizeText(decodedKey), ...tokenizeText(transliteratedKey)]))
+    .filter(t => t.length >= 3 && !STOP_WORDS.has(t));
+
+  if (keyTokens.length >= 2) {
     const artTokens = new Set([
-      ...tokenizeText(artTitle),
-      ...tokenizeText(artSlug),
-      ...tokenizeText(transliteratedTitle),
-      ...tokenizeText(transliteratedSlug)
+      ...tokenizeText(artTitle).filter(t => !STOP_WORDS.has(t)),
+      ...tokenizeText(artSlug).filter(t => !STOP_WORDS.has(t)),
+      ...tokenizeText(transliteratedTitle).filter(t => !STOP_WORDS.has(t)),
+      ...tokenizeText(transliteratedSlug).filter(t => !STOP_WORDS.has(t))
     ]);
 
     let matchedCount = 0;
     for (const token of keyTokens) {
-      if (artTokens.has(token) || [...artTokens].some(at => at.includes(token) || token.includes(at))) {
+      if (artTokens.has(token)) {
         matchedCount++;
       }
     }
-    if (matchedCount >= Math.ceil(keyTokens.length * 0.5) && matchedCount >= 1) {
+    // Require at least 75% overlap of non-stop words
+    if (matchedCount >= Math.ceil(keyTokens.length * 0.75) && matchedCount >= 2) {
       return true;
     }
   }
 
   return false;
+}
+
+/**
+ * Resolves the absolute, public HTTPS thumbnail image URL for any news article.
+ * Guarantees that:
+ * - Real uploaded Base64 images are served via /img/:id.jpg so WhatsApp/crawlers can fetch binary images.
+ * - Base64 strings are NEVER returned directly as og:image.
+ * - Articles with HTTPS URLs (CDNs, external storages) return their public HTTPS URL.
+ * - Fallbacks never return random Unsplash images, but the official newspaper brand logo.
+ */
+export function resolveArticleImageUrl(article: any, baseUrl?: string): string {
+  const origin = baseUrl
+    ? baseUrl.replace(/\/+$/, '')
+    : (typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com');
+
+  if (!article) return `${origin}/logo.png`;
+
+  let rawImg =
+    article.featuredImage ||
+    article.image ||
+    article.imageUrl ||
+    article.thumbnail ||
+    (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+
+  if (!rawImg && article.content && typeof article.content === 'string') {
+    const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (match && match[1]) rawImg = match[1];
+  }
+
+  if (!rawImg || typeof rawImg !== 'string') {
+    return `${origin}/logo.png`;
+  }
+
+  const trimmed = rawImg.trim();
+  if (!trimmed || trimmed.startsWith('data:image/svg')) {
+    return `${origin}/logo.png`;
+  }
+
+  const cleanId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
+    ? article.slug
+    : String(article.id || 'news').replace(/[^a-zA-Z0-9_-]/g, '') || 'news';
+
+  // 1. If Base64 image data or long inline data, serve via /img/:cleanId.jpg
+  if (
+    trimmed.startsWith('data:image/') ||
+    (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('/') && trimmed.length > 80)
+  ) {
+    return `${origin}/img/${cleanId}.jpg`;
+  }
+
+  // 2. If already absolute HTTPS URL
+  if (trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  // 3. If HTTP, upgrade to HTTPS if not local
+  if (trimmed.startsWith('http://')) {
+    if (!trimmed.includes('localhost') && !trimmed.includes('127.0.0.1')) {
+      return trimmed.replace(/^http:\/\//i, 'https://');
+    }
+    return trimmed;
+  }
+
+  // 4. If relative local asset path
+  if (trimmed.startsWith('/')) {
+    if (trimmed.startsWith('/img/') || trimmed.startsWith('/api/articles/')) {
+      return `${origin}/img/${cleanId}.jpg`;
+    }
+    return `${origin}${trimmed}`;
+  }
+
+  return `${origin}/img/${cleanId}.jpg`;
 }

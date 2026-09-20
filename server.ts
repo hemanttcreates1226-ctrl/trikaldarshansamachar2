@@ -36,7 +36,7 @@ import {
   INITIAL_SETTINGS,
   INITIAL_PANCHANG
 } from "./src/data/initialData";
-import { articleMatchesKey } from "./src/lib/slugHelper";
+import { articleMatchesKey, resolveArticleImageUrl } from "./src/lib/slugHelper";
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "database.json");
@@ -471,8 +471,18 @@ async function startServer() {
         const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
         const article = await findArticleAsync(cleanKey);
 
+        const logoPath = path.join(process.cwd(), "public", "logo.png");
+        const sendBrandFallback = () => {
+          if (fs.existsSync(logoPath)) {
+            res.setHeader("Content-Type", "image/png");
+            res.setHeader("Cache-Control", "public, max-age=86400");
+            return res.sendFile(logoPath);
+          }
+          return res.status(404).send("Image not found");
+        };
+
         if (!article) {
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+          return sendBrandFallback();
         }
 
         let rawFeatured =
@@ -488,12 +498,12 @@ async function startServer() {
         }
 
         if (!rawFeatured) {
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+          return sendBrandFallback();
         }
 
         const featured = String(rawFeatured).trim();
 
-        // If Base64 Image (e.g. data:image/jpeg;base64,... or raw base64 data)
+        // 1. If Base64 Image (e.g. data:image/jpeg;base64,... or raw base64 data)
         if (
           featured.startsWith("data:") ||
           (!featured.startsWith("http://") && !featured.startsWith("https://") && !featured.startsWith("/") && featured.length > 50)
@@ -522,18 +532,18 @@ async function startServer() {
           } catch (e) {
             console.error("[Image Endpoint] Base64 decode error:", e);
           }
-          return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+          return sendBrandFallback();
         }
 
-        // If absolute HTTPS or HTTP URL (e.g. Unsplash, external storage)
+        // 2. If absolute HTTPS or HTTP URL (e.g. external CDN, cloud storage)
         if (featured.startsWith("https://") || featured.startsWith("http://")) {
           return res.redirect(302, featured);
         }
 
-        // If local relative asset path (avoid self-reference loops)
+        // 3. If local relative asset path (avoid self-reference loops)
         if (featured.startsWith("/")) {
           if (featured.startsWith("/img/") || featured.startsWith("/api/articles/")) {
-            return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+            return sendBrandFallback();
           }
           const localPath = path.join(process.cwd(), featured.replace(/^\//, ""));
           if (fs.existsSync(localPath)) {
@@ -541,10 +551,15 @@ async function startServer() {
           }
         }
 
-        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        return sendBrandFallback();
       } catch (err) {
         console.error("[Image Endpoint Error]", err);
-        return res.redirect(302, DEFAULT_FALLBACK_IMAGE);
+        const logoPath = path.join(process.cwd(), "public", "logo.png");
+        if (fs.existsSync(logoPath)) {
+          res.setHeader("Content-Type", "image/png");
+          return res.sendFile(logoPath);
+        }
+        return res.status(500).send("Error loading image");
       }
     }
   );
@@ -934,8 +949,6 @@ ${articleUrls}
   });
 
   // --- DYNAMIC SERVER-SIDE OPEN GRAPH & SOCIAL PREVIEW GENERATOR ---
-  const DEFAULT_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1200&h=630&fit=crop&q=80";
-
   function getBaseUrl(req: express.Request): string {
     const rawForwardedHost = req.headers["x-forwarded-host"];
     const rawHost = rawForwardedHost || req.headers.host || req.get("host") || "";
@@ -963,61 +976,42 @@ ${articleUrls}
     return `${effectiveProto}://${fallbackHost}`.replace(/\/+$/, "");
   }
 
-  function resolveArticleImageUrl(article: any, baseUrl: string): string {
-    if (!article) return DEFAULT_FALLBACK_IMAGE;
+  function getSiteDefaultImage(baseUrl: string): string {
+    return `${baseUrl}/logo.png`;
+  }
 
-    let rawImg =
-      article.featuredImage ||
-      article.image ||
-      article.imageUrl ||
-      article.thumbnail ||
-      (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+  function searchListForArticle(list: any[], rawKey: string, decodedKey: string): any {
+    if (!Array.isArray(list) || list.length === 0) return null;
 
-    if (!rawImg && article.content && typeof article.content === "string") {
-      const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
-      if (match && match[1]) rawImg = match[1];
+    const rawLower = rawKey.toLowerCase();
+    const decLower = decodedKey.toLowerCase();
+
+    // 1. Exact ID match (case-sensitive and case-insensitive)
+    let found = list.find((a: any) => {
+      const aid = String(a.id || "").trim();
+      return aid === rawKey || aid === decodedKey || aid.toLowerCase() === rawLower || aid.toLowerCase() === decLower;
+    });
+    if (found) return found;
+
+    // 2. Exact Slug match (case-sensitive and case-insensitive)
+    found = list.find((a: any) => {
+      const aslug = String(a.slug || "").trim();
+      return aslug === rawKey || aslug === decodedKey || aslug.toLowerCase() === rawLower || aslug.toLowerCase() === decLower;
+    });
+    if (found) return found;
+
+    // 3. Numeric ID suffix match (for timestamp IDs like news-1788160772501)
+    const numKey = rawKey.replace(/\D/g, "");
+    if (numKey.length >= 6) {
+      found = list.find((a: any) => {
+        const nid = String(a.id || "").replace(/\D/g, "");
+        return nid && (nid === numKey || nid.endsWith(numKey));
+      });
+      if (found) return found;
     }
 
-    if (!rawImg || typeof rawImg !== "string") {
-      return DEFAULT_FALLBACK_IMAGE;
-    }
-
-    const trimmed = rawImg.trim();
-    if (!trimmed || trimmed.startsWith("data:image/svg")) {
-      return DEFAULT_FALLBACK_IMAGE;
-    }
-
-    const cleanId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
-      ? article.slug
-      : String(article.id || "news").replace(/[^a-zA-Z0-9_-]/g, "") || "news";
-
-    // 1. If Base64 image data or long inline data, serve via /img/:id.jpg endpoint so WhatsApp can download the real image binary
-    if (
-      trimmed.startsWith("data:image/") ||
-      (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("/") && trimmed.length > 80)
-    ) {
-      return `${baseUrl}/img/${cleanId}.jpg`;
-    }
-
-    // 2. If already absolute HTTPS URL
-    if (trimmed.startsWith("https://")) {
-      return trimmed;
-    }
-
-    // 3. If HTTP, upgrade to HTTPS if not local
-    if (trimmed.startsWith("http://")) {
-      if (!trimmed.includes("localhost") && !trimmed.includes("127.0.0.1")) {
-        return trimmed.replace(/^http:\/\//i, "https://");
-      }
-      return trimmed;
-    }
-
-    // 4. If relative local asset path
-    if (trimmed.startsWith("/")) {
-      return `${baseUrl}${trimmed}`;
-    }
-
-    return `${baseUrl}/img/${cleanId}.jpg`;
+    // 4. Smart fuzzy match using articleMatchesKey
+    return list.find((a: any) => articleMatchesKey(a, rawKey) || articleMatchesKey(a, decodedKey)) || null;
   }
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
@@ -1029,7 +1023,7 @@ ${articleUrls}
     } catch {}
 
     // 1. Check inMemoryDb first (fastest)
-    let found = inMemoryDb.news.find((a: any) => articleMatchesKey(a, raw) || articleMatchesKey(a, decoded));
+    let found = searchListForArticle(inMemoryDb.news, raw, decoded);
     if (found) return found;
 
     // 2. Check local database.json file on disk before hitting Firestore
@@ -1038,7 +1032,7 @@ ${articleUrls}
         const rawJson = fs.readFileSync(DB_FILE, "utf-8");
         const parsed = JSON.parse(rawJson);
         if (parsed && Array.isArray(parsed.news)) {
-          found = parsed.news.find((a: any) => articleMatchesKey(a, raw) || articleMatchesKey(a, decoded));
+          found = searchListForArticle(parsed.news, raw, decoded);
           if (found) {
             inMemoryDb.news = parsed.news;
             return found;
@@ -1214,11 +1208,9 @@ ${articleUrls}
   function injectMetaTags(html: string, meta: PageMeta): string {
     let cleaned = html
       .replace(/<title>[\s\S]*?<\/title>/gi, "")
-      .replace(/<meta\s+name=["']description["'][\s\S]*?>/gi, "")
-      .replace(/<link\s+rel=["']canonical["'][\s\S]*?>/gi, "")
-      .replace(/<meta\s+property=["']og:[^"']*["'][\s\S]*?>/gi, "")
-      .replace(/<meta\s+property=["']article:[^"']*["'][\s\S]*?>/gi, "")
-      .replace(/<meta\s+name=["']twitter:[^"']*["'][\s\S]*?>/gi, "");
+      .replace(/<meta\s+[^>]*?(?:property|name|itemprop)=["'](?:og:|twitter:|article:|description|name|image)[^"']*["'][^>]*>/gi, "")
+      .replace(/<link\s+[^>]*?rel=["'](?:canonical|image_src)["'][^>]*>/gi, "")
+      .replace(/<meta\s+itemprop=["'][^"']*["'][^>]*>/gi, "");
 
     const imageType = meta.image.endsWith(".png") ? "image/png" : meta.image.endsWith(".webp") ? "image/webp" : "image/jpeg";
 
@@ -1282,7 +1274,9 @@ ${articleUrls}
         const idOrSlug = articleMatch[2];
         const article = await findArticleAsync(idOrSlug);
         if (article) {
-          const cleanSlugOrId = (article.slug && /^[a-z0-9-]+$/i.test(article.slug)) ? article.slug : article.id;
+          const cleanSlugOrId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
+            ? article.slug
+            : article.id;
           const canonicalUrl = `${baseUrl}/post/${cleanSlugOrId}`;
           const absImageUrl = resolveArticleImageUrl(article, baseUrl);
           const description = cleanPlainText(
@@ -1316,7 +1310,7 @@ ${articleUrls}
             title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि",
             description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report।",
             url: `${baseUrl}${rawPath}`,
-            image: DEFAULT_FALLBACK_IMAGE
+            image: getSiteDefaultImage(baseUrl)
           };
         }
       } else if (rawPath.startsWith("/category/")) {
@@ -1328,7 +1322,7 @@ ${articleUrls}
           title: `${catName} समाचार | त्रिकाल दर्शन समाचार`,
           description: `त्रिकाल दर्शन समाचार पर पढ़ें ${catName} की ताज़ा और प्रामाणिक ख़बरें। सत्य की त्रिकाल दृष्टि।`,
           url: `${baseUrl}${rawPath}`,
-          image: DEFAULT_FALLBACK_IMAGE
+          image: getSiteDefaultImage(baseUrl)
         };
         if (isBot) {
           return res.status(200).set({
@@ -1342,7 +1336,7 @@ ${articleUrls}
           title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि | Trikal Darshan Samachar",
           description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report। सत्य की त्रिकाल दृष्टि।",
           url: `${baseUrl}${rawPath}`,
-          image: DEFAULT_FALLBACK_IMAGE
+          image: getSiteDefaultImage(baseUrl)
         };
         if (isBot) {
           return res.status(200).set({

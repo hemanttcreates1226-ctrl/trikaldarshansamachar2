@@ -28,7 +28,7 @@ import { NewsService } from '../services/newsService';
 import { NewsCard } from '../components/news/NewsCard';
 import { AdvertisementContainer } from '../components/news/AdvertisementContainer';
 import { handleImageError } from '../lib/imageFallback';
-import { cleanArticleSlug, safeDecodeURIComponent, getArticleShareUrl } from '../lib/slugHelper';
+import { cleanArticleSlug, safeDecodeURIComponent, getArticleShareUrl, resolveArticleImageUrl } from '../lib/slugHelper';
 import { NewsSpeechReader, SpeechState } from '../lib/speechReader';
 
 interface ArticleDetailPageProps {
@@ -242,15 +242,18 @@ export const ArticleDetailPage: React.FC<ArticleDetailPageProps> = ({
       const cleanShare = getArticleShareUrl(article, origin);
       const desc = article.subtitle || article.summary || article.content.slice(0, 160);
 
+      const absImg = resolveArticleImageUrl(article, origin);
+
       setMetaTag('property', 'og:title', article.title);
       setMetaTag('property', 'og:description', desc);
       setMetaTag('property', 'og:url', cleanShare);
-      setMetaTag('property', 'og:image', article.featuredImage || `${origin}/img/${article.id}.jpg`);
+      setMetaTag('property', 'og:image', absImg);
+      setMetaTag('property', 'og:image:secure_url', absImg);
       setMetaTag('property', 'og:type', 'article');
       setMetaTag('property', 'og:site_name', 'त्रिकाल दर्शन समाचार');
       setMetaTag('name', 'twitter:title', article.title);
       setMetaTag('name', 'twitter:description', desc);
-      setMetaTag('name', 'twitter:image', article.featuredImage || `${origin}/img/${article.id}.jpg`);
+      setMetaTag('name', 'twitter:image', absImg);
       setMetaTag('name', 'twitter:card', 'summary_large_image');
     }
   }, [article]);
