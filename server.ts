@@ -157,8 +157,8 @@ function initFirestoreSync(): void {
     const newsCol = collection(firestoreDb, "news");
     onSnapshot(newsCol, (snapshot) => {
       if (snapshot.empty) {
-        inMemoryDb.news = [];
-        saveDatabaseToDisk();
+        // If Firestore is empty or uninitialized, NEVER wipe existing in-memory/disk articles
+        console.log("[Firestore Sync] Snapshot is empty, retaining existing local articles");
         return;
       }
 
@@ -196,13 +196,10 @@ function initFirestoreSync(): void {
         }
       });
 
-      // Keep recent in-memory items (e.g. newly published articles not yet in Firestore snapshot)
+      // Retain ALL valid in-memory items that may not yet have synced to Firestore
       inMemoryDb.news.forEach((l: any) => {
         if (!cloudMap.has(l.id) && !LEGACY_MOCK_IDS.has(l.id)) {
-          const age = Date.now() - new Date(l.publishDate || l.updatedDate || 0).getTime();
-          if (age < 120000) {
-            merged.push(l);
-          }
+          merged.push(l);
         }
       });
 
@@ -996,21 +993,50 @@ ${articleUrls}
     const rawLower = rawKey.toLowerCase();
     const decLower = decodedKey.toLowerCase();
 
-    // 1. Exact ID match (case-sensitive and case-insensitive)
+    // 1. Exact Slug match (highest priority, case-sensitive & case-insensitive)
     let found = list.find((a: any) => {
-      const aid = String(a.id || "").trim();
-      return aid === rawKey || aid === decodedKey || aid.toLowerCase() === rawLower || aid.toLowerCase() === decLower;
-    });
-    if (found) return found;
-
-    // 2. Exact Slug match (case-sensitive and case-insensitive)
-    found = list.find((a: any) => {
       const aslug = String(a.slug || "").trim();
       return aslug === rawKey || aslug === decodedKey || aslug.toLowerCase() === rawLower || aslug.toLowerCase() === decLower;
     });
     if (found) return found;
 
-    // 3. Extracted ID matching (e.g. from slug ending in news-178... or art-...)
+    // 2. Exact ID match (case-sensitive & case-insensitive)
+    found = list.find((a: any) => {
+      const aid = String(a.id || "").trim();
+      return aid === rawKey || aid === decodedKey || aid.toLowerCase() === rawLower || aid.toLowerCase() === decLower;
+    });
+    if (found) return found;
+
+    // 3. Clean path prefix removal match (e.g. /post/xyz -> xyz)
+    const cleanRaw = rawKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
+    const cleanDec = decodedKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
+    if (cleanRaw && (cleanRaw !== rawLower || cleanDec !== decLower)) {
+      found = list.find((a: any) => {
+        const aslug = String(a.slug || "").trim().toLowerCase();
+        const aid = String(a.id || "").trim().toLowerCase();
+        return aslug === cleanRaw || aid === cleanRaw || aslug === cleanDec || aid === cleanDec;
+      });
+      if (found) return found;
+    }
+
+    // 4. Exact Title equality or Exact Title-derived slug match (Strict only, never partial)
+    found = list.find((a: any) => {
+      const title = String(a.title || "").trim();
+      if (!title) return false;
+      const titleLower = title.toLowerCase();
+      if (titleLower === rawLower || titleLower === decLower) return true;
+
+      const derivedSlug = generateCleanSlug(title, a.id).toLowerCase();
+      if (derivedSlug === rawLower || derivedSlug === decLower) return true;
+
+      const transliterated = transliterateHindiToEnglish(title).toLowerCase();
+      if (transliterated && (transliterated === rawLower || transliterated === decLower)) return true;
+
+      return false;
+    });
+    if (found) return found;
+
+    // 5. Extracted ID matching (e.g. from slug ending in news-178... or art-...)
     const idMatch = rawKey.match(/(news-\d+|art-\d+)/i) || decodedKey.match(/(news-\d+|art-\d+)/i);
     if (idMatch) {
       const targetId = idMatch[1].toLowerCase();
@@ -1018,29 +1044,7 @@ ${articleUrls}
       if (found) return found;
     }
 
-    // 4. Clean path prefix removal match (e.g. /post/xyz -> xyz)
-    const cleanRaw = rawKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
-    const cleanDec = decodedKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
-    if (cleanRaw) {
-      found = list.find((a: any) => {
-        const aid = String(a.id || "").trim().toLowerCase();
-        const aslug = String(a.slug || "").trim().toLowerCase();
-        return aid === cleanRaw || aslug === cleanRaw || aid === cleanDec || aslug === cleanDec;
-      });
-      if (found) return found;
-    }
-
-    // 5. Exact numeric timestamp ID match (require >= 10 digits to avoid false collisions)
-    const numKey = rawKey.replace(/\D/g, "");
-    if (numKey.length >= 10) {
-      found = list.find((a: any) => {
-        const nid = String(a.id || "").replace(/\D/g, "");
-        return nid && (nid === numKey || nid.endsWith(numKey));
-      });
-      if (found) return found;
-    }
-
-    // 6. High-confidence match via articleMatchesKey (strict match = true to prevent loose cross-article contamination)
+    // 6. Strict match only (never loose partial token match)
     return list.find((a: any) => articleMatchesKey(a, rawKey, true) || articleMatchesKey(a, decodedKey, true)) || null;
   }
 
@@ -1064,7 +1068,8 @@ ${articleUrls}
         if (parsed && Array.isArray(parsed.news)) {
           found = searchListForArticle(parsed.news, raw, decoded);
           if (found) {
-            inMemoryDb.news = parsed.news;
+            const exists = inMemoryDb.news.some((x: any) => x.id === found.id);
+            if (!exists) inMemoryDb.news.unshift(found);
             return found;
           }
         }
@@ -1073,12 +1078,14 @@ ${articleUrls}
 
     // 3. Direct Firestore lookup
     try {
-      // Try by document ID
+      // 3a. Try by document ID
       const directDoc = await getDoc(doc(firestoreDb, "news", raw));
       if (directDoc.exists()) {
         const data = directDoc.data();
         if (data) {
-          inMemoryDb.news.unshift(data);
+          const exists = inMemoryDb.news.some((x: any) => x.id === data.id);
+          if (!exists) inMemoryDb.news.unshift(data);
+          saveDatabaseToDisk();
           return data;
         }
       }
@@ -1088,18 +1095,22 @@ ${articleUrls}
         if (directDecodedDoc.exists()) {
           const data = directDecodedDoc.data();
           if (data) {
-            inMemoryDb.news.unshift(data);
+            const exists = inMemoryDb.news.some((x: any) => x.id === data.id);
+            if (!exists) inMemoryDb.news.unshift(data);
+            saveDatabaseToDisk();
             return data;
           }
         }
       }
 
-      // Try by slug field
+      // 3b. Try by slug field
       const q1 = query(collection(firestoreDb, "news"), where("slug", "==", raw));
       const snap1 = await getDocs(q1);
       if (!snap1.empty) {
         const data = snap1.docs[0].data();
-        inMemoryDb.news.unshift(data);
+        const exists = inMemoryDb.news.some((x: any) => x.id === data.id);
+        if (!exists) inMemoryDb.news.unshift(data);
+        saveDatabaseToDisk();
         return data;
       }
 
@@ -1108,9 +1119,22 @@ ${articleUrls}
         const snap2 = await getDocs(q2);
         if (!snap2.empty) {
           const data = snap2.docs[0].data();
-          inMemoryDb.news.unshift(data);
+          const exists = inMemoryDb.news.some((x: any) => x.id === data.id);
+          if (!exists) inMemoryDb.news.unshift(data);
+          saveDatabaseToDisk();
           return data;
         }
+      }
+
+      // 3c. Try by title field (exact match in Firestore)
+      const qTitle = query(collection(firestoreDb, "news"), where("title", "==", raw));
+      const snapTitle = await getDocs(qTitle);
+      if (!snapTitle.empty) {
+        const data = snapTitle.docs[0].data();
+        const exists = inMemoryDb.news.some((x: any) => x.id === data.id);
+        if (!exists) inMemoryDb.news.unshift(data);
+        saveDatabaseToDisk();
+        return data;
       }
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -1171,6 +1195,7 @@ ${articleUrls}
 
   interface PageMeta {
     title: string;
+    postTitle?: string;
     description: string;
     url: string;
     image: string;
@@ -1180,8 +1205,30 @@ ${articleUrls}
     section?: string;
   }
 
+  function generateNotFoundHtml(baseUrl: string, idOrSlug: string): string {
+    return `<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>समाचार नहीं मिला | त्रिकाल दर्शन समाचार</title>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+<body style="font-family: system-ui, -apple-system, sans-serif; text-align: center; padding: 48px 20px; background: #f9fafb; color: #111827;">
+  <div style="max-width: 500px; margin: 0 auto; background: #ffffff; padding: 32px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+    <h1 style="font-size: 22px; color: #dc2626; margin-bottom: 12px;">समाचार उपलब्ध नहीं है</h1>
+    <p style="color: #4b5563; font-size: 15px; margin-bottom: 24px;">यह समाचार हटा दिया गया है या इसका लिंक अमान्य है।</p>
+    <a href="${escapeHtml(baseUrl)}/" style="display: inline-block; background: #dc2626; color: #ffffff; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+      त्रिकाल दर्शन समाचार के मुखपृष्ठ पर जाएँ
+    </a>
+  </div>
+</body>
+</html>`;
+  }
+
   function generateCrawlerHtml(meta: PageMeta): string {
     const imageType = meta.image.endsWith(".png") ? "image/png" : meta.image.endsWith(".webp") ? "image/webp" : "image/jpeg";
+    const postTitle = meta.postTitle || meta.title;
     return `<!DOCTYPE html>
 <html lang="hi" prefix="og: http://ogp.me/ns# article: http://ogp.me/ns/article#">
 <head>
@@ -1194,7 +1241,7 @@ ${articleUrls}
   <!-- WhatsApp & Facebook Open Graph -->
   <meta property="og:type" content="${meta.type}" />
   <meta property="og:site_name" content="त्रिकाल दर्शन समाचार" />
-  <meta property="og:title" content="${escapeHtml(meta.title)}" />
+  <meta property="og:title" content="${escapeHtml(postTitle)}" />
   <meta property="og:description" content="${escapeHtml(meta.description)}" />
   <meta property="og:url" content="${escapeHtml(meta.url)}" />
   <meta property="og:image" content="${escapeHtml(meta.image)}" />
@@ -1202,7 +1249,7 @@ ${articleUrls}
   <meta property="og:image:type" content="${imageType}" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="${escapeHtml(meta.title)}" />
+  <meta property="og:image:alt" content="${escapeHtml(postTitle)}" />
   <meta property="og:locale" content="hi_IN" />
   ${meta.publishedTime ? `<meta property="article:published_time" content="${escapeHtml(meta.publishedTime)}" />` : ""}
   ${meta.author ? `<meta property="article:author" content="${escapeHtml(meta.author)}" />` : ""}
@@ -1211,14 +1258,14 @@ ${articleUrls}
   <!-- Twitter / X Card -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:site" content="@TrikalDarshan" />
-  <meta name="twitter:title" content="${escapeHtml(meta.title)}" />
+  <meta name="twitter:title" content="${escapeHtml(postTitle)}" />
   <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
   <meta name="twitter:image" content="${escapeHtml(meta.image)}" />
   <meta name="twitter:image:src" content="${escapeHtml(meta.image)}" />
-  <meta name="twitter:image:alt" content="${escapeHtml(meta.title)}" />
+  <meta name="twitter:image:alt" content="${escapeHtml(postTitle)}" />
 
   <!-- Search Engine Microdata -->
-  <meta itemprop="name" content="${escapeHtml(meta.title)}" />
+  <meta itemprop="name" content="${escapeHtml(postTitle)}" />
   <meta itemprop="description" content="${escapeHtml(meta.description)}" />
   <meta itemprop="image" content="${escapeHtml(meta.image)}" />
   <link rel="image_src" href="${escapeHtml(meta.image)}" />
@@ -1226,11 +1273,11 @@ ${articleUrls}
 <body style="font-family: sans-serif; padding: 24px; background: #ffffff; color: #111827; max-width: 800px; margin: 0 auto;">
   <article>
     <header>
-      <h1 style="font-size: 24px; line-height: 1.4; margin-bottom: 12px;">${escapeHtml(meta.title)}</h1>
+      <h1 style="font-size: 24px; line-height: 1.4; margin-bottom: 12px;">${escapeHtml(postTitle)}</h1>
       ${meta.author ? `<p style="color: #6b7280; font-size: 14px; margin-bottom: 16px;">लेखक / रिपोर्टर: ${escapeHtml(meta.author)}</p>` : ""}
     </header>
     <figure style="margin: 16px 0;">
-      <img src="${escapeHtml(meta.image)}" alt="${escapeHtml(meta.title)}" style="max-width: 100%; height: auto; border-radius: 8px; display: block;" />
+      <img src="${escapeHtml(meta.image)}" alt="${escapeHtml(postTitle)}" style="max-width: 100%; height: auto; border-radius: 8px; display: block;" />
     </figure>
     <p style="font-size: 16px; line-height: 1.6; color: #374151;">${escapeHtml(meta.description)}</p>
     <p style="margin-top: 24px;">
@@ -1248,9 +1295,12 @@ ${articleUrls}
       .replace(/<title>[\s\S]*?<\/title>/gi, "")
       .replace(/<meta\s+[^>]*?(?:property|name|itemprop)=["'](?:og:|twitter:|article:|description|name|image)[^"']*["'][^>]*>/gi, "")
       .replace(/<link\s+[^>]*?rel=["'](?:canonical|image_src)["'][^>]*>/gi, "")
-      .replace(/<meta\s+itemprop=["'][^"']*["'][^>]*>/gi, "");
+      .replace(/<meta\s+itemprop=["'][^"']*["'][^>]*>/gi, "")
+      .replace(/<!--\s*Default Open Graph[\s\S]*?-->/gi, "")
+      .replace(/<!--\s*Twitter Card Tags\s*-->/gi, "");
 
     const imageType = meta.image.endsWith(".png") ? "image/png" : meta.image.endsWith(".webp") ? "image/webp" : "image/jpeg";
+    const postTitle = meta.postTitle || meta.title;
 
     const metaBlock = `
     <!-- Dynamic Server-Rendered Social & Open Graph Metadata for WhatsApp / Facebook / Twitter -->
@@ -1261,7 +1311,7 @@ ${articleUrls}
     <!-- Open Graph / WhatsApp Preview Tags -->
     <meta property="og:type" content="${meta.type}" />
     <meta property="og:site_name" content="त्रिकाल दर्शन समाचार" />
-    <meta property="og:title" content="${escapeHtml(meta.title)}" />
+    <meta property="og:title" content="${escapeHtml(postTitle)}" />
     <meta property="og:description" content="${escapeHtml(meta.description)}" />
     <meta property="og:url" content="${escapeHtml(meta.url)}" />
     <meta property="og:image" content="${escapeHtml(meta.image)}" />
@@ -1269,7 +1319,7 @@ ${articleUrls}
     <meta property="og:image:type" content="${imageType}" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="${escapeHtml(meta.title)}" />
+    <meta property="og:image:alt" content="${escapeHtml(postTitle)}" />
     <meta property="og:locale" content="hi_IN" />
     ${meta.publishedTime ? `<meta property="article:published_time" content="${escapeHtml(meta.publishedTime)}" />` : ""}
     ${meta.author ? `<meta property="article:author" content="${escapeHtml(meta.author)}" />` : ""}
@@ -1277,25 +1327,120 @@ ${articleUrls}
 
     <!-- Twitter / X Card Tags -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="${escapeHtml(meta.title)}" />
+    <meta name="twitter:site" content="@TrikalDarshan" />
+    <meta name="twitter:title" content="${escapeHtml(postTitle)}" />
     <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
     <meta name="twitter:image" content="${escapeHtml(meta.image)}" />
     <meta name="twitter:image:src" content="${escapeHtml(meta.image)}" />
-    <meta name="twitter:image:alt" content="${escapeHtml(meta.title)}" />
+    <meta name="twitter:image:alt" content="${escapeHtml(postTitle)}" />
 
     <!-- Schema.org / Search Engine Direct Tags -->
-    <meta itemprop="name" content="${escapeHtml(meta.title)}" />
+    <meta itemprop="name" content="${escapeHtml(postTitle)}" />
     <meta itemprop="description" content="${escapeHtml(meta.description)}" />
     <meta itemprop="image" content="${escapeHtml(meta.image)}" />
     <link rel="image_src" href="${escapeHtml(meta.image)}" />
 `;
 
-    if (cleaned.includes("</head>")) {
-      return cleaned.replace("</head>", `${metaBlock}\n  </head>`);
-    } else if (cleaned.includes("<head>")) {
+    if (cleaned.includes("<head>")) {
       return cleaned.replace("<head>", `<head>\n${metaBlock}`);
+    } else if (cleaned.includes("</head>")) {
+      return cleaned.replace("</head>", `${metaBlock}\n  </head>`);
     }
     return `${metaBlock}\n${cleaned}`;
+  }
+
+  async function handleArticlePostRoute(req: express.Request, res: express.Response, vite?: any) {
+    try {
+      const baseUrl = getBaseUrl(req);
+      const userAgent = req.headers["user-agent"] || "";
+      const isBot = isSocialCrawler(userAgent) || req.query.crawler === "1" || req.query.bot === "1";
+
+      const paramKey = req.params.idOrSlug || "";
+      const rawPath = req.path || "";
+      let idOrSlug = paramKey;
+      if (!idOrSlug) {
+        const m = rawPath.match(/^\/(post|article|p|n|a|news|share)\/([^/]+)/i);
+        if (m) idOrSlug = m[2];
+      }
+
+      const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp|gif|html)$/i, "").trim();
+      let decodedKey = cleanKey;
+      try {
+        decodedKey = decodeURIComponent(cleanKey);
+      } catch {}
+
+      let article = await findArticleAsync(cleanKey);
+      if (!article && decodedKey !== cleanKey) {
+        article = await findArticleAsync(decodedKey);
+      }
+
+      // If article not found, NEVER return homepage metadata!
+      if (!article) {
+        return res.status(404).set({
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-cache, no-store, must-revalidate"
+        }).send(generateNotFoundHtml(baseUrl, idOrSlug));
+      }
+
+      const rawTitle = (article.title || "").trim();
+      const articleTitle = rawTitle ? `${rawTitle} | त्रिकाल दर्शन समाचार` : "त्रिकाल दर्शन समाचार";
+      const cleanSlugOrId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
+        ? article.slug
+        : article.id;
+      const canonicalUrl = `${baseUrl}/post/${cleanSlugOrId}`;
+      const absImageUrl = resolveArticleImageUrl(article, baseUrl);
+      const description = cleanPlainText(
+        article.subtitle || article.summary || article.content,
+        180
+      ) || "सत्य की त्रिकाल दृष्टि - पढ़ें पूरी खबर त्रिकाल दर्शन समाचार पर।";
+
+      const meta: PageMeta = {
+        type: "article",
+        title: articleTitle,
+        postTitle: rawTitle || articleTitle,
+        description,
+        url: canonicalUrl,
+        image: absImageUrl,
+        author: article.authorName || article.reporterName || "त्रिकाल दर्शन समाचार",
+        publishedTime: article.publishDate || new Date().toISOString(),
+        section: article.categoryName || "समाचार"
+      };
+
+      // 1. If crawler/bot (WhatsApp, Facebook, Twitter, Telegram, etc.), return dedicated crawler HTML
+      if (isBot) {
+        return res.status(200).set({
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "public, max-age=300, s-maxage=600"
+        }).send(generateCrawlerHtml(meta));
+      }
+
+      // 2. If browser, load SPA HTML and inject article-specific metadata, completely purging homepage defaults
+      let templateHtml = "";
+      const isProd = process.env.NODE_ENV === "production";
+      if (isProd) {
+        const distIndex = path.join(process.cwd(), "dist", "index.html");
+        if (fs.existsSync(distIndex)) {
+          templateHtml = fs.readFileSync(distIndex, "utf-8");
+        } else {
+          templateHtml = fs.readFileSync(path.join(process.cwd(), "index.html"), "utf-8");
+        }
+      } else {
+        const devIndex = path.join(process.cwd(), "index.html");
+        templateHtml = fs.readFileSync(devIndex, "utf-8");
+        if (vite) {
+          templateHtml = await vite.transformIndexHtml(req.originalUrl, templateHtml);
+        }
+      }
+
+      const finalHtml = injectMetaTags(templateHtml, meta);
+      return res.status(200).set({
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "public, max-age=60, s-maxage=300"
+      }).send(finalHtml);
+    } catch (err) {
+      console.error("[Post Route Error]", err);
+      return res.status(500).send("Server Error");
+    }
   }
 
   async function handlePageRender(req: express.Request, res: express.Response, vite?: any) {
@@ -1306,60 +1451,10 @@ ${articleUrls}
       const isBot = isSocialCrawler(userAgent);
       let meta: PageMeta;
 
-      // Check if it is an article page: /post/:idOrSlug, /article/:idOrSlug, /p/:idOrSlug, /n/:idOrSlug, /a/:idOrSlug, /news/:idOrSlug, /share/:idOrSlug
+      // Check if it is an article page
       const articleMatch = rawPath.match(/^\/(post|article|p|n|a|news|share)\/([^/]+)/i);
       if (articleMatch) {
-        const idOrSlug = articleMatch[2];
-        const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp|gif|html)$/i, "").trim();
-        let decodedKey = cleanKey;
-        try {
-          decodedKey = decodeURIComponent(cleanKey);
-        } catch {}
-
-        let article = await findArticleAsync(cleanKey);
-        if (!article && decodedKey !== cleanKey) {
-          article = await findArticleAsync(decodedKey);
-        }
-        if (article) {
-          const cleanSlugOrId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
-            ? article.slug
-            : article.id;
-          const canonicalUrl = `${baseUrl}/post/${cleanSlugOrId}`;
-          const absImageUrl = resolveArticleImageUrl(article, baseUrl);
-          const description = cleanPlainText(
-            article.subtitle || article.summary || article.content,
-            180
-          ) || "सत्य की त्रिकाल दृष्टि - पढ़ें पूरी खबर त्रिकाल दर्शन समाचार पर।";
-
-          const articleTitle = article.title ? `${article.title} | त्रिकाल दर्शन समाचार` : "त्रिकाल दर्शन समाचार";
-
-          meta = {
-            type: "article",
-            title: articleTitle,
-            description,
-            url: canonicalUrl,
-            image: absImageUrl,
-            author: article.authorName || article.reporterName || "त्रिकाल दर्शन समाचार",
-            publishedTime: article.publishDate || new Date().toISOString(),
-            section: article.categoryName || "समाचार"
-          };
-
-          // If social bot (WhatsApp, Facebook, Twitter, Telegram, etc.), return dedicated clean Open Graph HTML immediately!
-          if (isBot) {
-            return res.status(200).set({
-              "Content-Type": "text/html; charset=utf-8",
-              "Cache-Control": "public, max-age=300, s-maxage=600"
-            }).send(generateCrawlerHtml(meta));
-          }
-        } else {
-          meta = {
-            type: "website",
-            title: "त्रिकाल दर्शन समाचार - सत्य की त्रिकाल दृष्टि",
-            description: "भारत और आपके शहर की ताज़ा ख़बरें, स्थानीय समाचार, निष्पक्ष पत्रकारिता और Ground Report।",
-            url: `${baseUrl}${rawPath}`,
-            image: getSiteDefaultImage(baseUrl)
-          };
-        }
+        return await handleArticlePostRoute(req, res, vite);
       } else if (rawPath.startsWith("/category/")) {
         const catSlug = rawPath.replace("/category/", "").replace(/\/+$/, "").trim().toLowerCase();
         const cat = inMemoryDb.categories.find((c: any) => c.slug?.toLowerCase() === catSlug || c.id?.toLowerCase() === catSlug);
@@ -1424,11 +1519,26 @@ ${articleUrls}
     }
   }
 
+  const articleRoutePaths = [
+    "/post/:idOrSlug",
+    "/article/:idOrSlug",
+    "/news/:idOrSlug",
+    "/share/:idOrSlug",
+    "/p/:idOrSlug",
+    "/n/:idOrSlug",
+    "/a/:idOrSlug"
+  ];
+
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true, allowedHosts: true },
       appType: "custom",
+    });
+
+    // Explicit First-Class Route for Articles in Development (Takes precedence before Vite)
+    app.get(articleRoutePaths, async (req, res) => {
+      await handleArticlePostRoute(req, res, vite);
     });
 
     app.use(vite.middlewares);
@@ -1440,6 +1550,12 @@ ${articleUrls}
     });
   } else {
     const distPath = path.join(process.cwd(), "dist");
+
+    // Explicit First-Class Route for Articles in Production (Takes precedence before Static files)
+    app.get(articleRoutePaths, async (req, res) => {
+      await handleArticlePostRoute(req, res);
+    });
+
     app.use(express.static(distPath, { index: false }));
 
     app.use(async (req, res, next) => {

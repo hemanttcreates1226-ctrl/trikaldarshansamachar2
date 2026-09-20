@@ -2,6 +2,22 @@
   publish = "dist"
   command = "npm run build"
 
+[[edge_functions]]
+  function = "og-handler"
+  path = "/post/*"
+
+[[edge_functions]]
+  function = "og-handler"
+  path = "/article/*"
+
+[[edge_functions]]
+  function = "og-handler"
+  path = "/news/*"
+
+[[edge_functions]]
+  function = "og-handler"
+  path = "/img/*"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
