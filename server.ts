@@ -36,7 +36,13 @@ import {
   INITIAL_SETTINGS,
   INITIAL_PANCHANG
 } from "./src/data/initialData";
-import { articleMatchesKey, resolveArticleImageUrl } from "./src/lib/slugHelper";
+import {
+  articleMatchesKey,
+  resolveArticleImageUrl,
+  extractArticleRawImage,
+  sanitizePublicOrigin,
+  PUBLIC_CANONICAL_DOMAIN
+} from "./src/lib/slugHelper";
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "database.json");
@@ -469,7 +475,15 @@ async function startServer() {
       try {
         const { idOrSlug } = req.params;
         const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp|gif)$/i, "").trim();
-        const article = await findArticleAsync(cleanKey);
+        let decodedKey = cleanKey;
+        try {
+          decodedKey = decodeURIComponent(cleanKey);
+        } catch {}
+
+        let article = await findArticleAsync(cleanKey);
+        if (!article && decodedKey !== cleanKey) {
+          article = await findArticleAsync(decodedKey);
+        }
 
         const logoPath = path.join(process.cwd(), "public", "logo.png");
         const sendBrandFallback = () => {
@@ -485,17 +499,8 @@ async function startServer() {
           return sendBrandFallback();
         }
 
-        let rawFeatured =
-          article.featuredImage ||
-          article.image ||
-          article.imageUrl ||
-          article.thumbnail ||
-          (Array.isArray(article.galleryImages) && article.galleryImages[0]);
-
-        if (!rawFeatured && article.content && typeof article.content === "string") {
-          const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
-          if (match && match[1]) rawFeatured = match[1];
-        }
+        // Extract raw image using unified extractor across all article fields
+        const rawFeatured = extractArticleRawImage(article);
 
         if (!rawFeatured) {
           return sendBrandFallback();
@@ -503,7 +508,7 @@ async function startServer() {
 
         const featured = String(rawFeatured).trim();
 
-        // 1. If Base64 Image (e.g. data:image/jpeg;base64,... or raw base64 data)
+        // 1. If Base64 Image (data:image/... or raw base64 string)
         if (
           featured.startsWith("data:") ||
           (!featured.startsWith("http://") && !featured.startsWith("https://") && !featured.startsWith("/") && featured.length > 50)
@@ -520,13 +525,18 @@ async function startServer() {
           try {
             const imageBuffer = Buffer.from(base64Data, "base64");
             if (imageBuffer && imageBuffer.length > 0) {
+              const etag = `"${article.id || cleanKey}-${imageBuffer.length}"`;
               res.set({
                 "Content-Type": mimeType,
                 "Content-Length": imageBuffer.length.toString(),
                 "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
                 "Access-Control-Allow-Origin": "*",
-                "Accept-Ranges": "bytes"
+                "Accept-Ranges": "bytes",
+                "ETag": etag
               });
+              if (req.headers["if-none-match"] === etag) {
+                return res.status(304).end();
+              }
               return res.status(200).send(imageBuffer);
             }
           } catch (e) {
@@ -535,19 +545,18 @@ async function startServer() {
           return sendBrandFallback();
         }
 
-        // 2. If absolute HTTPS or HTTP URL (e.g. external CDN, cloud storage)
+        // 2. If absolute HTTPS or HTTP URL (e.g. external CDN, Cloud Storage)
         if (featured.startsWith("https://") || featured.startsWith("http://")) {
           return res.redirect(302, featured);
         }
 
         // 3. If local relative asset path (avoid self-reference loops)
         if (featured.startsWith("/")) {
-          if (featured.startsWith("/img/") || featured.startsWith("/api/articles/")) {
-            return sendBrandFallback();
-          }
-          const localPath = path.join(process.cwd(), featured.replace(/^\//, ""));
-          if (fs.existsSync(localPath)) {
-            return res.sendFile(localPath);
+          if (!featured.startsWith("/img/") && !featured.startsWith("/api/articles/")) {
+            const localPath = path.join(process.cwd(), featured.replace(/^\//, ""));
+            if (fs.existsSync(localPath)) {
+              return res.sendFile(localPath);
+            }
           }
         }
 
@@ -954,26 +963,27 @@ ${articleUrls}
     const rawHost = rawForwardedHost || req.headers.host || req.get("host") || "";
     const host = Array.isArray(rawHost) ? rawHost[0] : String(rawHost).split(",")[0].trim();
 
-    const forwardedProto = req.headers["x-forwarded-proto"];
-    const proto = typeof forwardedProto === "string"
-      ? forwardedProto.split(",")[0].trim()
-      : req.protocol || "https";
-
-    if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("0.0.0.0")) {
-      // Production live domain or cloud instance always uses HTTPS for external social crawlers
-      const effectiveProto = proto === "http" && (host.includes(".run.app") || host.includes("trikaldarshansamachar.com") || host.includes(".")) ? "https" : proto;
+    // If host is the live production domain or a valid custom public domain (excluding private dev/preview instances)
+    if (
+      host &&
+      !host.includes("localhost") &&
+      !host.includes("127.0.0.1") &&
+      !host.includes("0.0.0.0") &&
+      !host.includes("ais-dev-")
+    ) {
+      const forwardedProto = req.headers["x-forwarded-proto"];
+      const proto = typeof forwardedProto === "string" ? forwardedProto.split(",")[0].trim() : (req.protocol || "https");
+      const effectiveProto = (host.includes(".run.app") || host.includes("trikaldarshansamachar.com") || host.includes(".")) ? "https" : proto;
       return `${effectiveProto}://${host}`.replace(/\/+$/, "");
     }
 
-    if (process.env.APP_URL && process.env.APP_URL.trim() !== "") {
-      return process.env.APP_URL.trim().replace(/\/+$/, "");
+    if (process.env.PUBLIC_APP_URL && process.env.PUBLIC_APP_URL.trim() !== "") {
+      return process.env.PUBLIC_APP_URL.trim().replace(/\/+$/, "");
     }
 
-    const isLocal = host.includes("localhost") || host.includes("127.0.0.1") || host.includes("0.0.0.0");
-    const effectiveProto = isLocal ? proto : "https";
-    const fallbackHost = host || "trikaldarshansamachar.com";
-
-    return `${effectiveProto}://${fallbackHost}`.replace(/\/+$/, "");
+    // For social crawlers (WhatsApp, Facebook, Telegram) and public meta tags,
+    // point to the publicly accessible canonical domain
+    return PUBLIC_CANONICAL_DOMAIN;
   }
 
   function getSiteDefaultImage(baseUrl: string): string {
@@ -1000,9 +1010,29 @@ ${articleUrls}
     });
     if (found) return found;
 
-    // 3. Numeric ID suffix match (for timestamp IDs like news-1788160772501)
+    // 3. Extracted ID matching (e.g. from slug ending in news-178... or art-...)
+    const idMatch = rawKey.match(/(news-\d+|art-\d+)/i) || decodedKey.match(/(news-\d+|art-\d+)/i);
+    if (idMatch) {
+      const targetId = idMatch[1].toLowerCase();
+      found = list.find((a: any) => String(a.id || "").trim().toLowerCase() === targetId);
+      if (found) return found;
+    }
+
+    // 4. Clean path prefix removal match (e.g. /post/xyz -> xyz)
+    const cleanRaw = rawKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
+    const cleanDec = decodedKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
+    if (cleanRaw) {
+      found = list.find((a: any) => {
+        const aid = String(a.id || "").trim().toLowerCase();
+        const aslug = String(a.slug || "").trim().toLowerCase();
+        return aid === cleanRaw || aslug === cleanRaw || aid === cleanDec || aslug === cleanDec;
+      });
+      if (found) return found;
+    }
+
+    // 5. Exact numeric timestamp ID match (require >= 10 digits to avoid false collisions)
     const numKey = rawKey.replace(/\D/g, "");
-    if (numKey.length >= 6) {
+    if (numKey.length >= 10) {
       found = list.find((a: any) => {
         const nid = String(a.id || "").replace(/\D/g, "");
         return nid && (nid === numKey || nid.endsWith(numKey));
@@ -1010,8 +1040,8 @@ ${articleUrls}
       if (found) return found;
     }
 
-    // 4. Smart fuzzy match using articleMatchesKey
-    return list.find((a: any) => articleMatchesKey(a, rawKey) || articleMatchesKey(a, decodedKey)) || null;
+    // 6. High-confidence match via articleMatchesKey (strict match = true to prevent loose cross-article contamination)
+    return list.find((a: any) => articleMatchesKey(a, rawKey, true) || articleMatchesKey(a, decodedKey, true)) || null;
   }
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
@@ -1109,7 +1139,13 @@ ${articleUrls}
       ua.includes("vkshare") ||
       ua.includes("w3c_validator") ||
       ua.includes("redditbot") ||
-      ua.includes("applebot")
+      ua.includes("applebot") ||
+      ua.includes("discordbot") ||
+      ua.includes("skypeuripreview") ||
+      ua.includes("googlebot") ||
+      ua.includes("bingbot") ||
+      ua.includes("duckduckbot") ||
+      ua.includes("feedfetcher")
     );
   }
 
@@ -1186,21 +1222,23 @@ ${articleUrls}
   <meta itemprop="description" content="${escapeHtml(meta.description)}" />
   <meta itemprop="image" content="${escapeHtml(meta.image)}" />
   <link rel="image_src" href="${escapeHtml(meta.image)}" />
-
-  <meta http-equiv="refresh" content="0; url=${escapeHtml(meta.url)}" />
 </head>
-<body style="font-family: sans-serif; padding: 20px; background: #fff; color: #111;">
+<body style="font-family: sans-serif; padding: 24px; background: #ffffff; color: #111827; max-width: 800px; margin: 0 auto;">
   <article>
-    <h1>${escapeHtml(meta.title)}</h1>
-    <p>${escapeHtml(meta.description)}</p>
-    <img src="${escapeHtml(meta.image)}" alt="${escapeHtml(meta.title)}" style="max-width: 100%; height: auto;" />
-    <p><a href="${escapeHtml(meta.url)}">पूरा समाचार पढ़ने के लिए यहाँ क्लिक करें</a></p>
+    <header>
+      <h1 style="font-size: 24px; line-height: 1.4; margin-bottom: 12px;">${escapeHtml(meta.title)}</h1>
+      ${meta.author ? `<p style="color: #6b7280; font-size: 14px; margin-bottom: 16px;">लेखक / रिपोर्टर: ${escapeHtml(meta.author)}</p>` : ""}
+    </header>
+    <figure style="margin: 16px 0;">
+      <img src="${escapeHtml(meta.image)}" alt="${escapeHtml(meta.title)}" style="max-width: 100%; height: auto; border-radius: 8px; display: block;" />
+    </figure>
+    <p style="font-size: 16px; line-height: 1.6; color: #374151;">${escapeHtml(meta.description)}</p>
+    <p style="margin-top: 24px;">
+      <a href="${escapeHtml(meta.url)}" style="display: inline-block; background: #dc2626; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+        पूरा समाचार पढ़ने के लिए यहाँ क्लिक करें
+      </a>
+    </p>
   </article>
-  <script>
-    if (typeof window !== 'undefined' && window.location.replace) {
-      window.location.replace('${escapeHtml(meta.url)}');
-    }
-  </script>
 </body>
 </html>`;
   }
@@ -1272,7 +1310,16 @@ ${articleUrls}
       const articleMatch = rawPath.match(/^\/(post|article|p|n|a|news|share)\/([^/]+)/i);
       if (articleMatch) {
         const idOrSlug = articleMatch[2];
-        const article = await findArticleAsync(idOrSlug);
+        const cleanKey = (idOrSlug || "").replace(/\.(jpg|jpeg|png|webp|gif|html)$/i, "").trim();
+        let decodedKey = cleanKey;
+        try {
+          decodedKey = decodeURIComponent(cleanKey);
+        } catch {}
+
+        let article = await findArticleAsync(cleanKey);
+        if (!article && decodedKey !== cleanKey) {
+          article = await findArticleAsync(decodedKey);
+        }
         if (article) {
           const cleanSlugOrId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
             ? article.slug

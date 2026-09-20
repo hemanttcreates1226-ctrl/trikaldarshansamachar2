@@ -196,16 +196,35 @@ export function cleanArticleSlug(slugOrId: string | undefined | null): string {
   return cleaned;
 }
 
+export const PUBLIC_CANONICAL_DOMAIN = 'https://trikaldarshansamachar.com';
+
+/**
+ * Ensures public URLs for social bots and sharing point to the canonical live domain
+ * rather than private local/dev preview hosts (like localhost or ais-dev-*.run.app)
+ * which external crawlers (WhatsApp, Facebook, Telegram) cannot access.
+ */
+export function sanitizePublicOrigin(url?: string): string {
+  if (!url) return PUBLIC_CANONICAL_DOMAIN;
+  const trimmed = url.replace(/\/+$/, '').trim();
+  if (
+    trimmed.includes('localhost') ||
+    trimmed.includes('127.0.0.1') ||
+    trimmed.includes('0.0.0.0') ||
+    trimmed.includes('ais-dev-')
+  ) {
+    return PUBLIC_CANONICAL_DOMAIN;
+  }
+  return trimmed;
+}
+
 /**
  * Returns a clean, short, shareable URL for WhatsApp, Telegram, SMS, etc.
- * Uses ASCII-safe clean slug (e.g., https://yourwebsite.com/post/post-title)
+ * Uses ASCII-safe clean slug (e.g., https://trikaldarshansamachar.com/post/post-title)
  * Strictly guarantees no %E0%... percent-encoded characters in the shared URL.
  */
 export function getArticleShareUrl(article: { id?: string; slug?: string; title?: string } | undefined | null, baseUrl?: string): string {
-  if (!article) return baseUrl || 'https://trikaldarshansamachar.com';
-  const origin = baseUrl
-    ? baseUrl.replace(/\/+$/, '')
-    : (typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com');
+  const origin = sanitizePublicOrigin(baseUrl || (typeof window !== 'undefined' ? window.location.origin : undefined));
+  if (!article) return origin;
 
   const id = String(article.id || '').trim();
   const rawSlug = String(article.slug || '').trim();
@@ -249,7 +268,7 @@ const STOP_WORDS = new Set([
   'yeh', 'vah', 'bhi', 'latest', 'breaking', 'live'
 ]);
 
-export function articleMatchesKey(article: any, searchKey: string | undefined | null): boolean {
+export function articleMatchesKey(article: any, searchKey: string | undefined | null, strictMatch = false): boolean {
   if (!article || !searchKey) return false;
 
   const rawKey = String(searchKey).trim();
@@ -288,7 +307,13 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
     return true;
   }
 
-  // 3. Normalized string equality for slugs and IDs
+  // 3. Extracted ID matching (e.g. from slug ending in news-178... or art-...)
+  const idMatch = rawKey.match(/(news-\d+|art-\d+)/i) || decodedKey.match(/(news-\d+|art-\d+)/i);
+  if (idMatch && idMatch[1].toLowerCase() === lowerArtId) {
+    return true;
+  }
+
+  // 4. Normalized string equality for slugs and IDs
   const normId = normalizeText(artId);
   const normSlug = normalizeText(artSlug);
   const normDecoded = normalizeText(decodedKey);
@@ -298,21 +323,6 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
     (normSlug && (normSlug === normalizedKey || normSlug === normDecoded))
   ) {
     return true;
-  }
-
-  // 4. Numeric ID match (e.g. timestamp suffix match for IDs like news-1788160772501)
-  const numId = artId.replace(/\D/g, '');
-  const numKey = rawKey.replace(/\D/g, '');
-  if (numId && numKey && numKey.length >= 6) {
-    if (numId === numKey || numId.endsWith(numKey)) {
-      return true;
-    }
-  }
-
-  // If the query looks like an ID (e.g., news-..., art-..., or numeric), STOP here.
-  // Never perform fuzzy token overlap matching on ID lookups.
-  if (/^(news-|art-|\d{5,})/i.test(rawKey) || /^(news-|art-|\d{5,})/i.test(decodedKey)) {
-    return false;
   }
 
   // 5. Clean URL path prefix removal (e.g. /post/xyz -> xyz)
@@ -338,7 +348,6 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
   }
 
   // 7. Transliteration matching (English to Hindi & Hindi to English)
-  const transliteratedTitle = artTitle ? transliterateHindiToEnglish(artTitle) : '';
   const transliteratedSlug = artSlug ? transliterateHindiToEnglish(artSlug) : '';
   const transliteratedKey = transliterateHindiToEnglish(decodedKey);
 
@@ -348,11 +357,18 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
     }
   }
 
+  // If strict match requested (e.g. for image lookup or precise post routing),
+  // NEVER use loose token overlap to avoid cross-post contamination.
+  if (strictMatch) {
+    return false;
+  }
+
   // 8. Token overlap matching for long multi-word queries ONLY (filtering out stop-words)
   const keyTokens = Array.from(new Set([...tokenizeText(decodedKey), ...tokenizeText(transliteratedKey)]))
     .filter(t => t.length >= 3 && !STOP_WORDS.has(t));
 
-  if (keyTokens.length >= 2) {
+  if (keyTokens.length >= 3) {
+    const transliteratedTitle = artTitle ? transliterateHindiToEnglish(artTitle) : '';
     const artTokens = new Set([
       ...tokenizeText(artTitle).filter(t => !STOP_WORDS.has(t)),
       ...tokenizeText(artSlug).filter(t => !STOP_WORDS.has(t)),
@@ -366,8 +382,8 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
         matchedCount++;
       }
     }
-    // Require at least 75% overlap of non-stop words
-    if (matchedCount >= Math.ceil(keyTokens.length * 0.75) && matchedCount >= 2) {
+    // Require at least 80% overlap of non-stop words
+    if (matchedCount >= Math.ceil(keyTokens.length * 0.8) && matchedCount >= 3) {
       return true;
     }
   }
@@ -376,32 +392,96 @@ export function articleMatchesKey(article: any, searchKey: string | undefined | 
 }
 
 /**
+ * Extracts the raw image data from an article by checking all known fields in order:
+ * 1. featuredImage
+ * 2. image
+ * 3. imageUrl
+ * 4. thumbnail
+ * 5. galleryImages[0]
+ * 6. first image in content (HTML <img> tag or Markdown)
+ *
+ * Excludes recursive internal endpoints (like /img/ or /api/articles/) to locate actual data.
+ */
+export function extractArticleRawImage(article: any): string | null {
+  if (!article) return null;
+
+  const candidates = [
+    article.featuredImage,
+    article.image,
+    article.imageUrl,
+    article.thumbnail
+  ];
+
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) {
+      const trimmed = c.trim();
+      // Exclude circular self-referencing endpoints
+      if (!trimmed.startsWith('/img/') && !trimmed.startsWith('/api/articles/') && !trimmed.startsWith('/thumbnail/')) {
+        return trimmed;
+      }
+    }
+  }
+
+  // Check galleryImages
+  if (Array.isArray(article.galleryImages) && article.galleryImages.length > 0) {
+    for (const g of article.galleryImages) {
+      if (typeof g === 'string' && g.trim()) {
+        const trimmed = g.trim();
+        if (!trimmed.startsWith('/img/') && !trimmed.startsWith('/api/articles/') && !trimmed.startsWith('/thumbnail/')) {
+          return trimmed;
+        }
+      }
+    }
+  }
+
+  // Check first image inside content (HTML <img> or Markdown ![](url))
+  if (article.content && typeof article.content === 'string') {
+    const htmlMatch = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (htmlMatch && htmlMatch[1] && htmlMatch[1].trim()) {
+      const trimmed = htmlMatch[1].trim();
+      if (!trimmed.startsWith('/img/') && !trimmed.startsWith('/api/articles/')) {
+        return trimmed;
+      }
+    }
+    const mdMatch = article.content.match(/!\[.*?\]\((https?:\/\/[^\s\)]+|data:image\/[^\s\)]+)\)/i);
+    if (mdMatch && mdMatch[1] && mdMatch[1].trim()) {
+      const trimmed = mdMatch[1].trim();
+      if (!trimmed.startsWith('/img/') && !trimmed.startsWith('/api/articles/')) {
+        return trimmed;
+      }
+    }
+  }
+
+  // If only a local static path (like /uploads/photo.jpg or /assets/photo.jpg) was set
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) {
+      const trimmed = c.trim();
+      if (trimmed.startsWith('/') && !trimmed.startsWith('/img/') && !trimmed.startsWith('/api/articles/')) {
+        return trimmed;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Resolves the absolute, public HTTPS thumbnail image URL for any news article.
  * Guarantees that:
- * - Real uploaded Base64 images are served via /img/:id.jpg so WhatsApp/crawlers can fetch binary images.
+ * - Real uploaded Base64 images are served via /img/:idOrSlug.jpg so WhatsApp/crawlers can fetch binary images.
  * - Base64 strings are NEVER returned directly as og:image.
- * - Articles with HTTPS URLs (CDNs, external storages) return their public HTTPS URL.
- * - Fallbacks never return random Unsplash images, but the official newspaper brand logo.
+ * - Articles with HTTPS URLs (CDNs, external storages) return their public HTTPS URL directly.
+ * - Local relative paths are converted to absolute HTTPS URLs.
+ * - Fallbacks never return random Unsplash images or AI Studio thumbnails, but the official newspaper logo only when no image exists.
  */
 export function resolveArticleImageUrl(article: any, baseUrl?: string): string {
-  const origin = baseUrl
-    ? baseUrl.replace(/\/+$/, '')
-    : (typeof window !== 'undefined' ? window.location.origin : 'https://trikaldarshansamachar.com');
+  const origin = sanitizePublicOrigin(baseUrl || (typeof window !== 'undefined' ? window.location.origin : undefined));
 
   if (!article) return `${origin}/logo.png`;
 
-  let rawImg =
-    article.featuredImage ||
-    article.image ||
-    article.imageUrl ||
-    article.thumbnail ||
-    (Array.isArray(article.galleryImages) && article.galleryImages[0]);
+  const rawImg = extractArticleRawImage(article);
 
-  if (!rawImg && article.content && typeof article.content === 'string') {
-    const match = article.content.match(/<img[^>]+src=["']([^"']+)["']/i);
-    if (match && match[1]) rawImg = match[1];
-  }
-
+  // If article has no uploaded image in any field, use official brand logo fallback
   if (!rawImg || typeof rawImg !== 'string') {
     return `${origin}/logo.png`;
   }
@@ -411,19 +491,27 @@ export function resolveArticleImageUrl(article: any, baseUrl?: string): string {
     return `${origin}/logo.png`;
   }
 
-  const cleanId = (article.slug && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%'))
-    ? article.slug
-    : String(article.id || 'news').replace(/[^a-zA-Z0-9_-]/g, '') || 'news';
-
-  // 1. If Base64 image data or long inline data, serve via /img/:cleanId.jpg
-  if (
-    trimmed.startsWith('data:image/') ||
-    (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('/') && trimmed.length > 80)
-  ) {
-    return `${origin}/img/${cleanId}.jpg`;
+  // Choose the best key for the binary image endpoint:
+  // Prefer clean ASCII slug if present; otherwise use article.id
+  let cleanKey = '';
+  if (article.slug && typeof article.slug === 'string' && /^[a-zA-Z0-9_-]+$/.test(article.slug) && !article.slug.includes('%')) {
+    cleanKey = article.slug;
+  } else if (article.id && typeof article.id === 'string' && /^[a-zA-Z0-9_-]+$/.test(article.id) && !article.id.includes('%')) {
+    cleanKey = article.id;
+  } else {
+    cleanKey = String(article.id || 'news').replace(/[^a-zA-Z0-9_-]/g, '') || 'news';
   }
 
-  // 2. If already absolute HTTPS URL
+  // 1. If Base64 image data or raw inline base64 string
+  if (
+    trimmed.startsWith('data:image/') ||
+    trimmed.startsWith('data:') ||
+    (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('/') && trimmed.length > 50)
+  ) {
+    return `${origin}/img/${encodeURIComponent(cleanKey)}.jpg`;
+  }
+
+  // 2. If already an absolute HTTPS URL (e.g. CDN, Cloud Storage)
   if (trimmed.startsWith('https://')) {
     return trimmed;
   }
@@ -436,13 +524,10 @@ export function resolveArticleImageUrl(article: any, baseUrl?: string): string {
     return trimmed;
   }
 
-  // 4. If relative local asset path
+  // 4. If relative local public asset path (e.g. /uploads/image.jpg)
   if (trimmed.startsWith('/')) {
-    if (trimmed.startsWith('/img/') || trimmed.startsWith('/api/articles/')) {
-      return `${origin}/img/${cleanId}.jpg`;
-    }
     return `${origin}${trimmed}`;
   }
 
-  return `${origin}/img/${cleanId}.jpg`;
+  return `${origin}/img/${encodeURIComponent(cleanKey)}.jpg`;
 }
