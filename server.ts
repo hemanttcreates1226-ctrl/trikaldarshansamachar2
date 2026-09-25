@@ -41,7 +41,9 @@ import {
   resolveArticleImageUrl,
   extractArticleRawImage,
   sanitizePublicOrigin,
-  PUBLIC_CANONICAL_DOMAIN
+  PUBLIC_CANONICAL_DOMAIN,
+  generateCleanSlug,
+  transliterateHindiToEnglish
 } from "./src/lib/slugHelper";
 
 const DB_DIR = path.join(process.cwd(), "data");
@@ -987,29 +989,68 @@ ${articleUrls}
     return `${baseUrl}/logo.png`;
   }
 
+  function getArticleImageField(article: any): string {
+    if (!article) return "none";
+    if (article.featuredImage && typeof article.featuredImage === "string" && article.featuredImage.trim()) {
+      return "featuredImage";
+    }
+    if (article.image && typeof article.image === "string" && article.image.trim()) {
+      return "image";
+    }
+    if (article.imageUrl && typeof article.imageUrl === "string" && article.imageUrl.trim()) {
+      return "imageUrl";
+    }
+    if (article.thumbnail && typeof article.thumbnail === "string" && article.thumbnail.trim()) {
+      return "thumbnail";
+    }
+    if (Array.isArray(article.galleryImages) && article.galleryImages.length > 0 && typeof article.galleryImages[0] === "string" && article.galleryImages[0].trim()) {
+      return "galleryImages[0]";
+    }
+    if (article.content && typeof article.content === "string") {
+      if (article.content.match(/<img[^>]+src=["']([^"']+)["']/i) || article.content.match(/!\[.*?\]\((https?:\/\/[^\s\)]+|data:image\/[^\s\)]+)\)/i)) {
+        return "content(img)";
+      }
+    }
+    return "none";
+  }
+
   function searchListForArticle(list: any[], rawKey: string, decodedKey: string): any {
     if (!Array.isArray(list) || list.length === 0) return null;
 
-    const rawLower = rawKey.toLowerCase();
-    const decLower = decodedKey.toLowerCase();
+    const rawTrim = (rawKey || "").trim();
+    const decTrim = (decodedKey || "").trim();
+    const rawLower = rawTrim.toLowerCase();
+    const decLower = decTrim.toLowerCase();
 
-    // 1. Exact Slug match (highest priority, case-sensitive & case-insensitive)
+    // 1. Exact Slug match (case-sensitive first, then case-insensitive)
     let found = list.find((a: any) => {
       const aslug = String(a.slug || "").trim();
-      return aslug === rawKey || aslug === decodedKey || aslug.toLowerCase() === rawLower || aslug.toLowerCase() === decLower;
+      return aslug === rawTrim || aslug === decTrim;
     });
     if (found) return found;
 
-    // 2. Exact ID match (case-sensitive & case-insensitive)
+    found = list.find((a: any) => {
+      const aslug = String(a.slug || "").trim().toLowerCase();
+      return aslug === rawLower || aslug === decLower;
+    });
+    if (found) return found;
+
+    // 2. Exact ID match (case-sensitive first, then case-insensitive)
     found = list.find((a: any) => {
       const aid = String(a.id || "").trim();
-      return aid === rawKey || aid === decodedKey || aid.toLowerCase() === rawLower || aid.toLowerCase() === decLower;
+      return aid === rawTrim || aid === decTrim;
+    });
+    if (found) return found;
+
+    found = list.find((a: any) => {
+      const aid = String(a.id || "").trim().toLowerCase();
+      return aid === rawLower || aid === decLower;
     });
     if (found) return found;
 
     // 3. Clean path prefix removal match (e.g. /post/xyz -> xyz)
-    const cleanRaw = rawKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
-    const cleanDec = decodedKey.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
+    const cleanRaw = rawTrim.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
+    const cleanDec = decTrim.replace(/^\/?(post|article|news|share|p|n|a)\//i, "").replace(/\/+$/, "").trim().toLowerCase();
     if (cleanRaw && (cleanRaw !== rawLower || cleanDec !== decLower)) {
       found = list.find((a: any) => {
         const aslug = String(a.slug || "").trim().toLowerCase();
@@ -1037,7 +1078,7 @@ ${articleUrls}
     if (found) return found;
 
     // 5. Extracted ID matching (e.g. from slug ending in news-178... or art-...)
-    const idMatch = rawKey.match(/(news-\d+|art-\d+)/i) || decodedKey.match(/(news-\d+|art-\d+)/i);
+    const idMatch = rawTrim.match(/(news-\d+|art-\d+)/i) || decTrim.match(/(news-\d+|art-\d+)/i);
     if (idMatch) {
       const targetId = idMatch[1].toLowerCase();
       found = list.find((a: any) => String(a.id || "").trim().toLowerCase() === targetId);
@@ -1045,7 +1086,7 @@ ${articleUrls}
     }
 
     // 6. Strict match only (never loose partial token match)
-    return list.find((a: any) => articleMatchesKey(a, rawKey, true) || articleMatchesKey(a, decodedKey, true)) || null;
+    return list.find((a: any) => articleMatchesKey(a, rawTrim, true) || articleMatchesKey(a, decTrim, true)) || null;
   }
 
   async function findArticleAsync(idOrSlug: string): Promise<any> {
@@ -1376,6 +1417,15 @@ ${articleUrls}
 
       // If article not found, NEVER return homepage metadata!
       if (!article) {
+        console.log(`[OG DEBUG]
+requestedPath: ${rawPath}
+requestedKey: ${cleanKey}
+articleFound: false
+articleId: null
+articleSlug: null
+imageField: none
+finalOgImage: null`);
+
         return res.status(404).set({
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-cache, no-store, must-revalidate"
@@ -1389,6 +1439,17 @@ ${articleUrls}
         : article.id;
       const canonicalUrl = `${baseUrl}/post/${cleanSlugOrId}`;
       const absImageUrl = resolveArticleImageUrl(article, baseUrl);
+      const imageField = getArticleImageField(article);
+
+      console.log(`[OG DEBUG]
+requestedPath: ${rawPath}
+requestedKey: ${cleanKey}
+articleFound: true
+articleId: ${article.id || "null"}
+articleSlug: ${article.slug || "null"}
+imageField: ${imageField}
+finalOgImage: ${absImageUrl}`);
+
       const description = cleanPlainText(
         article.subtitle || article.summary || article.content,
         180

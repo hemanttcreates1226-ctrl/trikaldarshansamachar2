@@ -1,10 +1,36 @@
 import fs from "fs";
 import path from "path";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import {
+  initializeFirestore,
+  getFirestore,
+  setLogLevel,
+  collection,
+  getDocs
+} from "firebase/firestore";
+import firebaseConfigJson from "../firebase-applet-config.json";
 import {
   resolveArticleImageUrl,
   extractArticleRawImage,
   PUBLIC_CANONICAL_DOMAIN
 } from "../src/lib/slugHelper";
+
+setLogLevel("error");
+
+const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
+const serverDbId = firebaseConfigJson.firestoreDatabaseId && firebaseConfigJson.firestoreDatabaseId !== "(default)"
+  ? firebaseConfigJson.firestoreDatabaseId
+  : undefined;
+
+const firestoreDb = (() => {
+  try {
+    return initializeFirestore(firebaseApp, {
+      experimentalAutoDetectLongPolling: true,
+    }, serverDbId);
+  } catch {
+    return serverDbId ? getFirestore(firebaseApp, serverDbId) : getFirestore(firebaseApp);
+  }
+})();
 
 function escapeHtml(str: string | undefined | null): string {
   if (!str) return "";
@@ -100,14 +126,63 @@ async function runPrerender() {
 
   const templateHtml = fs.readFileSync(templatePath, "utf-8");
   const dbFile = path.join(process.cwd(), "data", "database.json");
+  let articles: any[] = [];
 
-  if (!fs.existsSync(dbFile)) {
-    console.warn("[Prerender] data/database.json not found, skipping.");
-    return;
+  if (fs.existsSync(dbFile)) {
+    try {
+      const db = JSON.parse(fs.readFileSync(dbFile, "utf-8"));
+      if (Array.isArray(db.news)) {
+        articles = db.news;
+      }
+    } catch (e) {
+      console.warn("[Prerender] Error parsing database.json:", e);
+    }
   }
 
-  const db = JSON.parse(fs.readFileSync(dbFile, "utf-8"));
-  const articles: any[] = Array.isArray(db.news) ? db.news : [];
+  // Fetch from Firestore to ensure all latest articles (e.g. adfg) are included
+  try {
+    const col = collection(firestoreDb, "news");
+    const snap = await getDocs(col);
+    if (!snap.empty) {
+      const cloudArticles: any[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data && (data.id || data.slug)) {
+          cloudArticles.push(data);
+        }
+      });
+
+      // Merge: if article exists in local, preserve local rich base64 image if cloud doesn't have it
+      const localMap = new Map<string, any>();
+      articles.forEach((a) => {
+        if (a.id) localMap.set(a.id, a);
+      });
+
+      const merged: any[] = [];
+      const cloudMap = new Map<string, any>();
+      cloudArticles.forEach((c) => {
+        cloudMap.set(c.id, c);
+        const local = localMap.get(c.id);
+        if (local && !c.featuredImage && local.featuredImage) {
+          merged.push({ ...c, featuredImage: local.featuredImage });
+        } else {
+          merged.push(c);
+        }
+      });
+
+      // Also keep local articles that haven't synced
+      articles.forEach((l) => {
+        if (!cloudMap.has(l.id)) {
+          merged.push(l);
+        }
+      });
+
+      articles = merged;
+      console.log(`[Prerender] Merged Firestore articles. Total articles to prerender: ${articles.length}`);
+    }
+  } catch (err: any) {
+    console.warn("[Prerender] Firestore fetch skipped or failed:", err.message);
+  }
 
   const imgDistDir = path.join(distDir, "img");
   fs.mkdirSync(imgDistDir, { recursive: true });
